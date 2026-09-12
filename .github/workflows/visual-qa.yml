@@ -25,39 +25,51 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build open-valley candidate
+      - name: Build scan-selected valley candidate
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
+          import math,re
           p=Path('index.html')
           s=p.read_text()
 
-          # Open valley: low floor, visible mountain relief, but no wall filling the upper half of frame.
-          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:1500,z:3500}, yaw=2.618,pitch=-.025, bob=", s, count=1)
-
-          # Keep a clean overcast gradient for art-direction evaluation.
-          a=s.index('const skyP = program('); b=s.index('const terrainP = program(',a)
-          sky=s[a:b]
-          flat='''void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.455,.470,.460); vec3 zenith=vec3(.235,.255,.255); vec3 col=mix(horizon,zenith,smoothstep(.02,.92,y)); float band=floor((1.0-y)*30.0)/30.0; col*=.975+.035*band; o=vec4(col,1); }'''
-          sky=re.sub(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',flat,sky,count=1)
-          s=s[:a]+sky+s[b:]
-
-          # Alpine material pass: raise ambient fill, expose rock faces, let snow wrap onto steep high faces.
-          old="vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.55,.72,.25)); float nd=.18+.82*max(dot(n,sun),0.0); float alt=smoothstep(650.0,2150.0,vH); float rock=smoothstep(.60,.92,1.0-n.y); float snow=smoothstep(1780.0,2350.0,vH)*smoothstep(.55,.86,n.y); vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47); vec3 col=mix(moss,stone,max(rock,alt*.58)); col=mix(col,cold,snow*.62); float micro=noise21(vWorld.xz*.035); col*=.88+.18*floor(micro*4.0)/3.0; col*=mix(.78,1.0,nd);"
-          new="vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.55,.72,.25)); float nd=.52+.48*max(dot(n,sun),0.0); float alt=smoothstep(780.0,1950.0,vH); float rock=smoothstep(.45,.82,1.0-n.y); float snow=smoothstep(1500.0,2100.0,vH)*mix(.24,1.0,smoothstep(.34,.82,n.y)); vec3 moss=vec3(.155,.190,.155), stone=vec3(.345,.350,.325), cold=vec3(.68,.695,.665); vec3 col=mix(moss,stone,max(rock,alt*.60)); col=mix(col,cold,snow*.70); float micro=noise21(vWorld.xz*.030); col*=.92+.14*floor(micro*5.0)/4.0; col*=nd;"
-          if old not in s: raise SystemExit('Terrain material target not found')
-          s=s.replace(old,new,1)
-
-          # Smaller, less frequent nearby trees; still dense at distance.
-          s=re.sub(r"const cell=\d+, r=\d+", "const cell=39, r=1180", s, count=1)
-          s=re.sub(r"forest>\.\d+ && localSlope<16", "forest>.54 && localSlope<16", s, count=1)
-          s=re.sub(r"const s=\([^;]+?\)\*\(\.82\+\.18\*alpine\);", "const s=(4.4+hash2(gx+7,gz+11)*5.2)*(.84+.16*alpine);", s, count=1)
-
-          required=['let pos={x:1500,z:3500}, yaw=2.618','float nd=.52+.48','snow=smoothstep(1500.0,2100.0','forest>.54']
-          missing=[q for q in required if q not in s]
-          if missing: raise SystemExit('Open-valley patch missing: '+repr(missing))
+          # This point was selected by a 360-degree terrain scan, not by eyeballing one heading.
+          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=",
+                   "let pos={x:2500,z:2500}, yaw=2.16,pitch=-.025, bob=", s, count=1)
+          if 'let pos={x:2500,z:2500}, yaw=2.16' not in s:
+              raise SystemExit('Spawn patch failed')
           p.write_text(s)
+
+          # Reproduce the JS height function and reject the spawn if nearby terrain can dominate the view.
+          def fract(x): return x-math.floor(x)
+          def hsh(x,z): return fract(math.sin(x*127.1+z*311.7)*43758.5453123)
+          def noise(x,z):
+              ix,iz=math.floor(x),math.floor(z); fx,fz=fract(x),fract(z)
+              ux,uz=fx*fx*(3-2*fx),fz*fz*(3-2*fz)
+              a,b,c,d=hsh(ix,iz),hsh(ix+1,iz),hsh(ix,iz+1),hsh(ix+1,iz+1)
+              return ((a*(1-ux)+b*ux)*(1-uz)+(c*(1-ux)+d*ux)*uz)
+          def terrain(x,z):
+              macro=noise(x*.00012+11,z*.00012-7)
+              r0=1-abs(noise(x*.00028-21,z*.00028+31)*2-1)
+              r1=1-abs(noise(x*.00055+47,z*.00055-13)*2-1)
+              shoulder=noise(x*.00110-5,z*.00110+17)
+              detail=noise(x*.0028+9,z*.0028-29)
+              mountains=(r0**2.7)*(1050+1050*macro)+(r1**3.0)*360
+              return 430+macro*300+mountains+shoulder*110+detail*18
+          x=z=2500.0; eye=terrain(x,z)+1.72
+          radii=(250,500,750,1000,1500,2000,3000,4000,5000)
+          max_near=-90; max_all=-90; max_far=-90
+          for i in range(32):
+              a=i*2*math.pi/32
+              for r in radii:
+                  hh=terrain(x+math.sin(a)*r,z+math.cos(a)*r)
+                  e=math.degrees(math.atan2(hh-eye,r))
+                  max_all=max(max_all,e)
+                  if r<=1000: max_near=max(max_near,e)
+                  if r>=3000: max_far=max(max_far,e)
+          print('skyline near/all/far',round(max_near,2),round(max_all,2),round(max_far,2))
+          if max_near>3.0 or max_all>17.0 or max_far<8.0:
+              raise SystemExit('Spawn skyline rejected')
           PY
 
       - name: Install browser QA
@@ -70,43 +82,48 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture seven iPhone composition views
+      - name: Capture 360-degree iPhone stress views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image, ImageStat
+          from PIL import Image,ImageStat
           from pathlib import Path
           shots=[
-            ('spawn',1500,3500,2.618,-.025),
-            ('left',1500,3500,2.05,-.025),
-            ('right',1500,3500,3.18,-.025),
-            ('look_up',1500,3500,2.618,.34),
-            ('look_down',1500,3500,2.618,-.34),
-            ('valley_two',2500,3000,4.45,-.025),
-            ('forest_edge',500,0,.524,-.02),
+            ('spawn_peak',2500,2500,2.16,-.025,True),
+            ('north',2500,2500,0.0,-.025,True),
+            ('east',2500,2500,1.57,-.025,True),
+            ('south',2500,2500,3.14,-.025,True),
+            ('west',2500,2500,4.71,-.025,True),
+            ('northwest',2500,2500,5.50,-.025,True),
+            ('look_up',2500,2500,2.16,.34,False),
+            ('look_down',2500,2500,2.16,-.34,False),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           metrics=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             page=browser.new_page(viewport={'width':932,'height':430})
-            for name,x,z,yaw,pitch in shots:
+            for name,x,z,yaw,pitch,normal in shots:
               page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
               page.wait_for_timeout(1800)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise RuntimeError('WebGL2 unavailable')
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
+                  raise RuntimeError('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
               mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
-              metrics.append((name,mean,black,hi-lo)); print(name,round(mean,1),round(black,4),hi-lo)
+              top=im.crop((0,0,im.width,int(im.height*.16)))
+              top_std=ImageStat.Stat(top).stddev[0]
+              metrics.append((name,mean,black,hi-lo,top_std,normal))
+              print(name,'mean',round(mean,1),'black',round(black,4),'range',hi-lo,'top_std',round(top_std,1))
             browser.close()
-          bad=[m for m in metrics if m[1] < 50 or m[2] > .06 or m[3] < 65]
-          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
+          bad=[m for m in metrics if m[1]<50 or m[2]>.06 or m[3]<65 or (m[5] and m[4]>8.0)]
+          if bad: raise SystemExit('Visual guardrail failed: '+repr(bad))
           PY
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-open-valley
+          name: alpine-visual-qa-scan-valley
           path: qa-shots/*.png
           if-no-files-found: error
 
@@ -118,7 +135,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: open valley and readable alpine materials"
+            git commit -m "QA: use 360-degree scan-selected valley spawn"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
