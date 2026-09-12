@@ -2,7 +2,11 @@ name: Alpine Visual QA
 
 on:
   push:
-    branches: [main, qa]
+    branches: [main]
+
+concurrency:
+  group: alpine-visual-qa
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -21,159 +25,95 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Patch QA build
+      - name: Build scenic QA candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text()
 
-          # Pass 1: catastrophic billboard/camera bug and tonal range.
-          reps={
-            "gl.uniform3f(uni(treeP,'uUp'),up[0],up[1],up[2]);":"gl.uniform3f(uni(treeP,'uUp'),0,1,0);",
-            "vec3 zen=vec3(.050,.071,.070), hor=vec3(.235,.262,.248);":"vec3 zen=vec3(.085,.105,.104), hor=vec3(.315,.335,.320);",
-            "vec3 moss=vec3(.115,.145,.116), stone=vec3(.245,.250,.225), cold=vec3(.43,.45,.40);":"vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47);",
-            "col*=.80+.22*floor(micro*4.0)/3.0; col*=nd;":"col*=.88+.18*floor(micro*4.0)/3.0; col*=mix(.78,1.0,nd);",
-            "vec3 fogCol=vec3(.185,.210,.200);":"vec3 fogCol=vec3(.245,.268,.255);",
-            "c=floor(c*22.0+.5)/22.0; c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.68); c*=.94;":"c=floor(c*30.0+.5)/30.0; c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78); c*=1.05;",
-            "c*=1.0-smoothstep(.32,.77,edge)*.34;":"c*=1.0-smoothstep(.38,.86,edge)*.20;",
-            "mix-blend-mode:multiply; opacity:.66;":"mix-blend-mode:multiply; opacity:.36;",
-          }
-          for a,b in reps.items(): s=s.replace(a,b)
+          # Start in an open low valley looking toward a distant ~2.4 km ridge.
+          s=s.replace("let pos={x:0,z:0}, yaw=5.323,pitch=-.04", "let pos={x:3750,z:5750}, yaw=.262,pitch=-.035")
 
-          # Pass 2: stable world-upright, correctly oriented trees.
-          s=s.replace("vUv=vec2(aCorner.x+.5,aCorner.y+.5);", "vUv=vec2(aCorner.x+.5,1.0-(aCorner.y+.5));")
+          # Preserve endless forest while stopping nearby billboards from dominating the landscape.
+          s=s.replace("const cell=34, r=1050", "const cell=38, r=1120")
+          s=s.replace("forest>.42 && localSlope<16", "forest>.50 && localSlope<16")
+          s=s.replace("const s=(5.2+hash2(gx+7,gz+11)*6.8)", "const s=(4.8+hash2(gx+7,gz+11)*5.7)")
 
-          old_js='''function terrainHeight(x,z){
-            let amp=1, freq=0.00072, sum=0, norm=0;
-            for(let i=0;i<5;i++){
-              const n=noise2(x*freq,z*freq);
-              const ridge=1-Math.abs(n*2-1);
-              sum += ridge*ridge*amp; norm += amp; amp*=0.52; freq*=2.03;
-            }
-            const basin=noise2(x*0.00027+53,z*0.00027-19);
-            const detail=noise2(x*0.0042-7,z*0.0042+13);
-            return 180 + (sum/norm)*1500 + basin*650 + detail*18;
-          }'''
-          pass2_js='''function terrainHeight(x,z){
-            const macro=noise2(x*0.00018+11,z*0.00018-7);
-            const r0=1-Math.abs(noise2(x*0.00040-21,z*0.00040+31)*2-1);
-            const r1=1-Math.abs(noise2(x*0.00078+47,z*0.00078-13)*2-1);
-            const shoulder=noise2(x*0.00125-5,z*0.00125+17);
-            const detail=noise2(x*0.0036+9,z*0.0036-29);
-            const mountains=Math.pow(r0,2.25)*(430+760*macro)+Math.pow(r1,3.0)*170;
-            return 430+macro*300+mountains+shoulder*90+detail*12;
-          }'''
-          pass3_js='''function terrainHeight(x,z){
-            const macro=noise2(x*0.00018+11,z*0.00018-7);
-            const r0=1-Math.abs(noise2(x*0.00040-21,z*0.00040+31)*2-1);
-            const r1=1-Math.abs(noise2(x*0.00078+47,z*0.00078-13)*2-1);
-            const r2=1-Math.abs(noise2(x*0.00135-9,z*0.00135+6)*2-1);
-            const shoulder=noise2(x*0.00125-5,z*0.00125+17);
-            const detail=noise2(x*0.0036+9,z*0.0036-29);
-            const mountains=Math.pow(r0,2.25)*(650+1150*macro)+Math.pow(r1,3.0)*250+Math.pow(r2,4.0)*80*Math.pow(r0,1.2);
-            return 380+macro*260+mountains+shoulder*70+detail*10;
-          }'''
-          s=s.replace(old_js,pass3_js).replace(pass2_js,pass3_js)
+          # Stormy overcast, but never a near-black ceiling.
+          s=s.replace("vec3 zen=vec3(.115,.132,.130), hor=vec3(.385,.400,.388);", "vec3 zen=vec3(.145,.162,.160), hor=vec3(.405,.418,.406);")
+          s=s.replace("vec3(.190,.208,.202),cloud*.38", "vec3(.220,.235,.228),cloud*.30")
+          s=s.replace("vec3 fogCol=vec3(.300,.320,.306)", "vec3 fogCol=vec3(.315,.330,.318)")
+          s=s.replace("col=mix(col,vec3(.300,.320,.306),clamp(fog,0.0,.98));", "col=mix(col,vec3(.315,.330,.318),clamp(fog,0.0,.98));")
+          s=s.replace("opacity:.36;", "opacity:.30;", 1)
 
-          old_gl="float terrain(vec2 p){ float amp=1.0,freq=.00072,sum=0.0,norm=0.0; for(int i=0;i<5;i++){ float n=noise21(p*freq); float r=1.0-abs(n*2.0-1.0); sum+=r*r*amp; norm+=amp; amp*=.52; freq*=2.03; } float basin=noise21(p*.00027+vec2(53,-19)); float detail=noise21(p*.0042+vec2(-7,13)); return 180.0+(sum/norm)*1500.0+basin*650.0+detail*18.0; }"
-          pass2_gl="float terrain(vec2 p){ float macro=noise21(p*.00018+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00040+vec2(-21,31))*2.0-1.0); float r1=1.0-abs(noise21(p*.00078+vec2(47,-13))*2.0-1.0); float shoulder=noise21(p*.00125+vec2(-5,17)); float detail=noise21(p*.0036+vec2(9,-29)); float mountains=pow(r0,2.25)*(430.0+760.0*macro)+pow(r1,3.0)*170.0; return 430.0+macro*300.0+mountains+shoulder*90.0+detail*12.0; }"
-          pass3_gl="float terrain(vec2 p){ float macro=noise21(p*.00018+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00040+vec2(-21,31))*2.0-1.0); float r1=1.0-abs(noise21(p*.00078+vec2(47,-13))*2.0-1.0); float r2=1.0-abs(noise21(p*.00135+vec2(-9,6))*2.0-1.0); float shoulder=noise21(p*.00125+vec2(-5,17)); float detail=noise21(p*.0036+vec2(9,-29)); float mountains=pow(r0,2.25)*(650.0+1150.0*macro)+pow(r1,3.0)*250.0+pow(r2,4.0)*80.0*pow(r0,1.2); return 380.0+macro*260.0+mountains+shoulder*70.0+detail*10.0; }"
-          s=s.replace(old_gl,pass3_gl).replace(pass2_gl,pass3_gl)
-
-          # Pass 2/3 vistas and forest tuning.
-          s=s.replace("aGrid*vec2(1850.0)", "aGrid*vec2(3400.0)")
-          s=s.replace("aGrid*vec2(2600.0)", "aGrid*vec2(3400.0)")
-          s=s.replace("vDist/660.0", "vDist/1250.0")
-          s=s.replace("vDist/920.0", "vDist/1250.0")
-          s=s.replace("vDist/540.0", "vDist/980.0")
-          s=s.replace("vDist/760.0", "vDist/980.0")
-          s=s.replace("vec3 fogCol=vec3(.245,.268,.255)", "vec3 fogCol=vec3(.285,.305,.292)")
-          s=s.replace("col=mix(col,vec3(.185,.210,.200),clamp(fog,0.0,.98));", "col=mix(col,vec3(.285,.305,.292),clamp(fog,0.0,.98));")
-          s=s.replace("hor=vec3(.315,.335,.320)", "hor=vec3(.345,.360,.344)")
-          s=s.replace("const cell=28, r=760", "const cell=31, r=900")
-          s=s.replace("const cell=31, r=820", "const cell=31, r=900")
-          s=s.replace("if(forest>.22 && localSlope<18 && alpine>0){ const s=(6.5+hash2(gx+7,gz+11)*8.5)*(.8+.2*alpine);", "if(forest>.30 && localSlope<16 && alpine>0){ const s=(5.5+hash2(gx+7,gz+11)*6.5)*(.82+.18*alpine);")
-          s=s.replace("perspective(P,68*Math.PI/180,lowW/lowH,.35,4100)", "perspective(P,68*Math.PI/180,lowW/lowH,.35,6800)")
-          s=s.replace("perspective(P,68*Math.PI/180,lowW/lowH,.35,5200)", "perspective(P,68*Math.PI/180,lowW/lowH,.35,6800)")
-
-          # Stronger alpine material separation without sacrificing the late-90s palette.
-          s=s.replace("float alt=smoothstep(650.0,2150.0,vH); float rock=smoothstep(.60,.92,1.0-n.y); float snow=smoothstep(1780.0,2350.0,vH)*smoothstep(.55,.86,n.y);",
-                      "float alt=smoothstep(700.0,1750.0,vH); float rock=smoothstep(.48,.84,1.0-n.y); float snow=smoothstep(1450.0,1900.0,vH)*smoothstep(.42,.80,n.y);")
-          s=s.replace("vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47); vec3 col=mix(moss,stone,max(rock,alt*.58)); col=mix(col,cold,snow*.62); float micro=noise21(vWorld.xz*.035); col*=.88+.18*floor(micro*4.0)/3.0; col*=mix(.78,1.0,nd);",
-                      "vec3 moss=vec3(.145,.180,.145), stone=vec3(.285,.300,.280), cold=vec3(.56,.58,.54); vec3 col=mix(moss,stone,max(rock,alt*.62)); col=mix(col,cold,snow*.72); float micro=noise21(vWorld.xz*.028); float crag=noise21(vWorld.xz*.010+vec2(19,-7)); col*=.86+.20*floor(micro*5.0)/4.0; col=mix(col,col*.72,smoothstep(.62,.88,crag)*rock*.55); col*=mix(.80,1.0,nd);")
-          s=s.replace("col=mix(col,vec3(.115,.132,.127),cloud*.62);", "col=mix(col,vec3(.165,.180,.172),cloud*.48);")
-          s=s.replace("vec3 col=t.rgb*(.78+.20*vShade);", "vec3 col=t.rgb*(.88+.18*vShade);")
-
-          # Deterministic camera controls for visual regression screenshots.
-          if "const qaParams=new URLSearchParams(location.search);" not in s:
-            old="if(new URLSearchParams(location.search).has('test')){document.getElementById('start').style.display='none';started=true;}"
-            new="""const qaParams=new URLSearchParams(location.search);\nif(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';started=true;}\nif(qaParams.has('x')) pos.x=Number(qaParams.get('x'))||pos.x;\nif(qaParams.has('z')) pos.z=Number(qaParams.get('z'))||pos.z;\nif(qaParams.has('yaw')) yaw=Number(qaParams.get('yaw'))||0;\nif(qaParams.has('pitch')) pitch=Number(qaParams.get('pitch'))||0;\npos.y=terrainHeight(pos.x,pos.z)+1.72;"""
-            s=s.replace(old,new)
-          s=s.replace("if(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';started=true;}", "if(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';document.getElementById('hint').style.opacity='0';started=true;}")
-
+          required=[
+            "let pos={x:3750,z:5750}, yaw=.262,pitch=-.035",
+            "const cell=38, r=1120",
+            "forest>.50 && localSlope<16",
+            "vec3 zen=vec3(.145,.162,.160)",
+            "gl.clear(gl.DEPTH_BUFFER_BIT)",
+            "gl.uniform3f(uni(treeP,'uUp'),0,1,0)"
+          ]
+          missing=[x for x in required if x not in s]
+          if missing: raise SystemExit('QA patch missing: '+repr(missing))
           p.write_text(s)
           PY
 
-      - name: Install Playwright
+      - name: Install browser QA
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
 
       - name: Start local server
         run: |
-          python -m http.server 8000 > /tmp/alpine-server.log 2>&1 &
-          echo $! > /tmp/alpine-server.pid
+          python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture gameplay views
+      - name: Capture iPhone gameplay views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
+
           shots=[
-            ('spawn',178,-612,2.34,-0.055),
-            ('valley',600,-300,1.55,-0.02),
-            ('ridge',-450,850,3.6,-0.08),
-            ('forest',100,-950,0.4,-0.03),
-            ('uphill',900,400,5.1,0.18),
-            ('downlook',178,-612,2.34,-0.35),
-            ('uplook',178,-612,2.34,0.38),
+            ('spawn',3750,5750,.262,-.035),
+            ('spawn_left',3750,5750,5.55,-.035),
+            ('spawn_right',3750,5750,1.15,-.035),
+            ('distant_peak',7750,2500,-.262,-.04),
+            ('forest_edge',4500,7000,1.13,-.03),
+            ('pitch_up',3750,5750,.262,.42),
+            ('pitch_down',3750,5750,.262,-.42),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
+          metrics=[]
           with sync_playwright() as p:
-            browser=p.chromium.launch(headless=True,args=[
-              '--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader',
-              '--enable-unsafe-swiftshader','--disable-gpu-sandbox'
-            ])
+            browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             page=browser.new_page(viewport={'width':932,'height':430})
             for name,x,z,yaw,pitch in shots:
-              url=f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}'
-              page.goto(url,wait_until='load',timeout=30000)
+              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
               page.wait_for_timeout(1800)
-              ok=page.evaluate("!!document.querySelector('#game').getContext('webgl2')")
-              if not ok: raise RuntimeError('WebGL2 unavailable in QA runner')
-              target=out/f'{name}.png'
-              page.screenshot(path=str(target))
-              im=Image.open(target).convert('L')
-              st=ImageStat.Stat(im)
-              mean=st.mean[0]
-              lo,hi=im.getextrema()
-              print(name,'mean_luma',round(mean,1),'range',(lo,hi))
-              if mean < 28 or hi-lo < 55:
-                raise RuntimeError(f'{name}: visually crushed frame (mean={mean:.1f}, range={hi-lo})')
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
+                raise RuntimeError('WebGL2 unavailable')
+              target=out/f'{name}.png'; page.screenshot(path=str(target))
+              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
+              mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
+              metrics.append((name,mean,near_black,hi-lo))
+              print(name,'mean',round(mean,1),'near_black',round(near_black,4),'range',hi-lo)
             browser.close()
+          bad=[m for m in metrics if m[1] < 48 or m[2] > .08 or m[3] < 65]
+          if bad: raise SystemExit('Visual readability guardrail failed: '+repr(bad))
           PY
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa
+          name: alpine-visual-qa-scenic
           path: qa-shots/*.png
           if-no-files-found: error
 
-      - name: Commit QA patch to branch
+      - name: Commit candidate to QA branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -181,7 +121,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: stronger alpine relief and iPhone readability"
-            git pull --rebase origin qa
+            git commit -m "QA: scenic valley spawn and balanced tree scale"
             git push origin HEAD:qa
           fi
