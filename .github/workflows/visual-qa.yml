@@ -25,41 +25,22 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build final mood candidate
+      - name: Build clean overcast candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html')
           s=p.read_text()
-          if 'return (h>>>8)/16777216' not in s or 'float(h>>8u)*(1.0/16777216.0)' not in s:
-              raise SystemExit('Deterministic terrain base missing')
+          if 'return (h>>>8)/16777216' not in s: raise SystemExit('Deterministic terrain missing')
 
-          # Low-contrast layered storm deck: modulation only, never a solid cloud silhouette.
           a=s.index('const skyP = program('); b=s.index('const terrainP = program(',a)
           sky=s[a:b]
-          mood='''void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.365,.395,.388), zenith=vec3(.125,.150,.155); vec3 col=mix(horizon,zenith,smoothstep(.02,.94,y)); vec2 q=vec2(uv.x*6.5+uLook.x*.55,uv.y*2.2+uTime*.0025); float c=.65*noise21(q*2.0+vec2(7,-3))+.35*noise21(q*5.0+vec2(-9,4)); float cloud=(c-.5); float mask=smoothstep(.08,.40,y)*(1.0-smoothstep(.78,1.0,y)); col*=1.0+cloud*.16*mask; float mist=exp(-pow((y-.13)/.20,2.0)); col=mix(col,vec3(.390,.415,.405),mist*.12); float band=floor((1.0-y)*28.0)/28.0; col*=.965+.045*band; o=vec4(col,1); }'''
-          sky,n=re.subn(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',mood,sky,count=1)
-          if n!=1: raise SystemExit('Sky mood patch failed')
+          clean='''void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.370,.398,.392), zenith=vec3(.145,.165,.170); vec3 col=mix(horizon,zenith,smoothstep(.02,.96,y)); vec2 q=vec2(uv.x*9.0+uLook.x*.70,uv.y*3.6+uTime*.0030); float c=.58*noise21(q*2.8+vec2(7,-3))+.42*noise21(q*6.2+vec2(-9,4)); float texture=(c-.5)*.055; float mask=smoothstep(.10,.35,y)*(1.0-smoothstep(.94,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.10)/.18,2.0)); col=mix(col,vec3(.400,.420,.412),mist*.14); float band=floor((1.0-y)*30.0)/30.0; col*=.970+.040*band; o=vec4(col,1); }'''
+          sky,n=re.subn(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',clean,sky,count=1)
+          if n!=1: raise SystemExit('Clean sky patch failed')
           s=s[:a]+sky+s[b:]
-
-          # Stronger snow/rock separation plus brighter atmospheric perspective.
-          s=s.replace('cold=vec3(.68,.695,.665)','cold=vec3(.80,.815,.790)',1)
-          s=s.replace('col=mix(col,cold,snow*.70)','col=mix(col,cold,snow*.82)',1)
-          s=s.replace('vec3 fogCol=vec3(.300,.320,.306)','vec3 fogCol=vec3(.355,.375,.365)',1)
-          s=s.replace('col=mix(col,vec3(.300,.320,.306),clamp(fog,0.0,.98));','col=mix(col,vec3(.355,.375,.365),clamp(fog,0.0,.98));',1)
-
-          # Slightly coarser late-90s palette/raster feel; preserve landscape readability.
-          s=s.replace('c=floor(c*30.0+.5)/30.0','c=floor(c*24.0+.5)/24.0',1)
-          s=s.replace('c,mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78)','c,mix(vec3(dot(c,vec3(.299,.587,.114))),c,.72)',1) if False else s
-          s=s.replace("c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78);", "c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.72);",1)
-          s=s.replace('c*=1.08;','c*=1.06;',1)
-          s=s.replace("c*=1.0-smoothstep(.40,.88,edge)*.16;", "c*=1.0-smoothstep(.40,.88,edge)*.19; c*=.985+.015*step(.5,fract(gl_FragCoord.y*.5));",1)
-          s=s.replace('opacity:.24;','opacity:.27;',1)
-
-          required=['cloud*.16*mask','cold=vec3(.80,.815,.790)','vec3 fogCol=vec3(.355,.375,.365)','c*24.0','opacity:.27;']
-          missing=[q for q in required if q not in s]
-          if missing: raise SystemExit('Mood patch missing: '+repr(missing))
+          if 'texture=(c-.5)*.055' not in s: raise SystemExit('Clean overcast missing')
           p.write_text(s)
           PY
 
@@ -86,7 +67,6 @@ jobs:
             ('east',8500,-13000,1.57,-.025),
             ('south',8500,-13000,3.14,-.025),
             ('west',8500,-13000,4.71,-.025),
-            ('northeast',8500,-13000,.78,-.025),
             ('look_up',8500,-13000,3.40,.38),
             ('look_down',8500,-13000,3.40,-.38),
           ]
@@ -98,13 +78,12 @@ jobs:
             for name,x,z,yaw,pitch in shots:
               page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
               page.wait_for_timeout(1800)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
-                  raise RuntimeError('WebGL2 unavailable')
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise RuntimeError('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
               mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
               metrics.append({'name':name,'mean':mean,'black':black,'range':hi-lo})
-              print(name,'mean',round(mean,1),'black',round(black,4),'range',hi-lo)
+              print(name,round(mean,1),round(black,4),hi-lo)
             browser.close()
           Path('qa-metrics.json').write_text(json.dumps(metrics,indent=2))
           PY
@@ -112,7 +91,7 @@ jobs:
       - name: Upload final screenshot evidence
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-final-mood
+          name: alpine-visual-qa-clean-overcast
           path: |
             qa-shots/*.png
             qa-metrics.json
@@ -135,7 +114,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: final moody alpine art pass"
+            git commit -m "QA: clean textured overcast"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
