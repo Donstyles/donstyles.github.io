@@ -1,15 +1,15 @@
-name: Alpine Spawn Candidate Review
+name: Alpine Atmosphere Pass
 
 on:
   push:
     branches: [qa]
 
 concurrency:
-  group: alpine-spawn-review
+  group: alpine-atmosphere-pass
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   review:
@@ -19,45 +19,127 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: qa
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Build restrained atmosphere candidate
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html'); s=p.read_text()
+
+          # Lock the reviewed F composition.
+          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=",
+                   "let pos={x:1750,z:-1750}, yaw=4.712,pitch=.10, bob=",s,count=1)
+
+          # Colder layered overcast; texture stays subtle enough to avoid fake cloud blobs.
+          s=s.replace("vec3 horizon=vec3(.398,.425,.415), zenith=vec3(.175,.192,.202);",
+                      "vec3 horizon=vec3(.365,.392,.398), zenith=vec3(.125,.143,.160);",1)
+          s=s.replace("float texture=(c-.5)*.024;","float texture=(c-.5)*.036;",1)
+          s=s.replace("vec3(.435,.452,.438),mist*.18","vec3(.405,.425,.430),mist*.24",1)
+
+          # Desaturate valley vegetation and cool wet/forest zones.
+          s=s.replace("vec3 grass=mix(vec3(.115,.188,.112),vec3(.245,.305,.170),meadowA*.58+meadowB*.42);",
+                      "vec3 grass=mix(vec3(.095,.145,.108),vec3(.188,.222,.145),meadowA*.58+meadowB*.42);",1)
+          s=s.replace("vec3(.085,.135,.100),wet*.38","vec3(.070,.105,.102),wet*.42",1)
+          s=s.replace("vec3(.060,.105,.078),forestMass*.38","vec3(.052,.082,.075),forestMass*.46",1)
+
+          # Cooler rock, more obvious alpine snow fields, less green/brown mountain read.
+          s=s.replace("float snow=smoothstep(1760.0,2300.0,vH)*mix(.16,1.0,smoothstep(.22,.76,n.y));",
+                      "float snow=smoothstep(1660.0,2200.0,vH)*mix(.20,1.0,smoothstep(.20,.74,n.y));",1)
+          s=s.replace("vec3 stone=mix(vec3(.315,.325,.310),vec3(.405,.410,.380),face);",
+                      "vec3 stone=mix(vec3(.285,.305,.315),vec3(.395,.410,.415),face);",1)
+          s=s.replace("vec3 cold=vec3(.755,.770,.748);","vec3 cold=vec3(.800,.815,.805);",1)
+          s=s.replace("col=mix(col,cold,snow*.82);","col=mix(col,cold,snow*.88);",1)
+
+          # More depth, but preserve distant ridge silhouettes.
+          s=s.replace("float fog=1.0-exp(-pow(vDist/2300.0,1.74));","float fog=1.0-exp(-pow(vDist/2180.0,1.72));",1)
+          s=s.replace("float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.085;",
+                      "float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.115;",1)
+          s=s.replace("vec3 fogCol=vec3(.360,.390,.375);","vec3 fogCol=vec3(.335,.365,.380);",1)
+          s=s.replace("col=mix(col,vec3(.360,.390,.375),clamp(fog,0.0,.965));",
+                      "col=mix(col,vec3(.335,.365,.380),clamp(fog,0.0,.965));",1)
+
+          # Late-90s grade: slightly less saturated and less exposed than the previous pass.
+          s=s.replace("c=floor(c*24.0+.5)/24.0;","c=floor(c*22.0+.5)/22.0;",1)
+          s=s.replace("c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.86);",
+                      "c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78);",1)
+          s=s.replace("c*=1.13;","c*=1.09;",1)
+
+          required=["let pos={x:1750,z:-1750}, yaw=4.712,pitch=.10",
+                    "vec3 horizon=vec3(.365,.392,.398)",
+                    "vec3(.095,.145,.108)",
+                    "smoothstep(1660.0,2200.0,vH)",
+                    "vec3 fogCol=vec3(.335,.365,.380)",
+                    "c=floor(c*22.0+.5)/22.0"]
+          missing=[x for x in required if x not in s]
+          if missing: raise SystemExit('Atmosphere patch missing: '+repr(missing))
+          p.write_text(s)
+          PY
+
       - name: Install browser QA
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
+
       - name: Start candidate server
         run: |
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
-      - name: Capture six analyzed spawn candidates
+
+      - name: Capture iPhone atmosphere review
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
+          import re
           shots=[
-            ('A_2000_-1500_south',2000,-1500,3.142,0.10),
-            ('B_2000_-1500_sw',2000,-1500,3.927,0.10),
-            ('C_2000_-1750_e',2000,-1750,1.571,0.10),
-            ('D_2000_-1750_se',2000,-1750,1.963,0.10),
-            ('E_1750_-2000_e',1750,-2000,1.571,0.10),
-            ('F_1750_-1750_w',1750,-1750,4.712,0.10),
+            ('spawn',1750,-1750,4.712,.10),
+            ('spawn_left',1750,-1750,4.20,.08),
+            ('spawn_right',1750,-1750,5.18,.08),
+            ('look_up',1750,-1750,4.712,.42),
+            ('look_down',1750,-1750,4.712,-.18),
+            ('walk_ahead',1600,-1750,4.712,.08),
+            ('valley_side',2000,-1500,3.927,.08),
+            ('high_pass',-1700,-2200,2.25,-.04),
           ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True)
+          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             page=browser.new_page(viewport={'width':932,'height':430})
+            page.on('pageerror',lambda exc: errors.append('pageerror:'+str(exc)))
+            page.on('console',lambda msg: errors.append('console:'+msg.text) if msg.type=='error' else None)
             for name,x,z,yaw,pitch in shots:
               page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
-              page.wait_for_timeout(1300)
+              page.wait_for_timeout(1400)
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise SystemExit('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
-              im=Image.open(target).convert('L'); print(name,round(ImageStat.Stat(im).mean[0],1),im.getextrema())
+              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist); mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
+              metrics.append((name,mean,black,hi-lo)); print(name,round(mean,1),round(black,4),hi-lo)
             browser.close()
+          bad=[m for m in metrics if m[1]<38 or m[2]>.14 or m[3]<55]
+          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
+          if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
-      - name: Upload spawn candidates
+
+      - name: Upload atmosphere screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-spawn-candidates
+          name: alpine-atmosphere-review
           path: qa-shots/*.png
           if-no-files-found: error
+
+      - name: Commit candidate to QA only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --cached --quiet; then echo "No candidate changes"; else
+            git commit -m "Lock scenic spawn and refine Alpine atmosphere"
+            git pull --rebase origin qa
+            git push origin HEAD:qa
+          fi
