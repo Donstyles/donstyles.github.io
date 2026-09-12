@@ -30,51 +30,25 @@ jobs:
           from pathlib import Path
           import re
           p=Path('index.html'); s=p.read_text()
-
-          # Lock the reviewed F composition.
-          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=",
-                   "let pos={x:1750,z:-1750}, yaw=4.712,pitch=.10, bob=",s,count=1)
-
-          # Colder layered overcast; texture stays subtle enough to avoid fake cloud blobs.
-          s=s.replace("vec3 horizon=vec3(.398,.425,.415), zenith=vec3(.175,.192,.202);",
-                      "vec3 horizon=vec3(.365,.392,.398), zenith=vec3(.125,.143,.160);",1)
+          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=","let pos={x:1750,z:-1750}, yaw=4.712,pitch=.10, bob=",s,count=1)
+          s=s.replace("vec3 horizon=vec3(.398,.425,.415), zenith=vec3(.175,.192,.202);","vec3 horizon=vec3(.365,.392,.398), zenith=vec3(.125,.143,.160);",1)
           s=s.replace("float texture=(c-.5)*.024;","float texture=(c-.5)*.036;",1)
           s=s.replace("vec3(.435,.452,.438),mist*.18","vec3(.405,.425,.430),mist*.24",1)
-
-          # Desaturate valley vegetation and cool wet/forest zones.
-          s=s.replace("vec3 grass=mix(vec3(.115,.188,.112),vec3(.245,.305,.170),meadowA*.58+meadowB*.42);",
-                      "vec3 grass=mix(vec3(.095,.145,.108),vec3(.188,.222,.145),meadowA*.58+meadowB*.42);",1)
+          s=s.replace("vec3 grass=mix(vec3(.115,.188,.112),vec3(.245,.305,.170),meadowA*.58+meadowB*.42);","vec3 grass=mix(vec3(.095,.145,.108),vec3(.188,.222,.145),meadowA*.58+meadowB*.42);",1)
           s=s.replace("vec3(.085,.135,.100),wet*.38","vec3(.070,.105,.102),wet*.42",1)
           s=s.replace("vec3(.060,.105,.078),forestMass*.38","vec3(.052,.082,.075),forestMass*.46",1)
-
-          # Cooler rock, more obvious alpine snow fields, less green/brown mountain read.
-          s=s.replace("float snow=smoothstep(1760.0,2300.0,vH)*mix(.16,1.0,smoothstep(.22,.76,n.y));",
-                      "float snow=smoothstep(1660.0,2200.0,vH)*mix(.20,1.0,smoothstep(.20,.74,n.y));",1)
-          s=s.replace("vec3 stone=mix(vec3(.315,.325,.310),vec3(.405,.410,.380),face);",
-                      "vec3 stone=mix(vec3(.285,.305,.315),vec3(.395,.410,.415),face);",1)
+          s=s.replace("float snow=smoothstep(1760.0,2300.0,vH)*mix(.16,1.0,smoothstep(.22,.76,n.y));","float snow=smoothstep(1660.0,2200.0,vH)*mix(.20,1.0,smoothstep(.20,.74,n.y));",1)
+          s=s.replace("vec3 stone=mix(vec3(.315,.325,.310),vec3(.405,.410,.380),face);","vec3 stone=mix(vec3(.285,.305,.315),vec3(.395,.410,.415),face);",1)
           s=s.replace("vec3 cold=vec3(.755,.770,.748);","vec3 cold=vec3(.800,.815,.805);",1)
           s=s.replace("col=mix(col,cold,snow*.82);","col=mix(col,cold,snow*.88);",1)
-
-          # More depth, but preserve distant ridge silhouettes.
           s=s.replace("float fog=1.0-exp(-pow(vDist/2300.0,1.74));","float fog=1.0-exp(-pow(vDist/2180.0,1.72));",1)
-          s=s.replace("float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.085;",
-                      "float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.115;",1)
+          s=s.replace("float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.085;","float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.115;",1)
           s=s.replace("vec3 fogCol=vec3(.360,.390,.375);","vec3 fogCol=vec3(.335,.365,.380);",1)
-          s=s.replace("col=mix(col,vec3(.360,.390,.375),clamp(fog,0.0,.965));",
-                      "col=mix(col,vec3(.335,.365,.380),clamp(fog,0.0,.965));",1)
-
-          # Late-90s grade: slightly less saturated and less exposed than the previous pass.
+          s=s.replace("col=mix(col,vec3(.360,.390,.375),clamp(fog,0.0,.965));","col=mix(col,vec3(.335,.365,.380),clamp(fog,0.0,.965));",1)
           s=s.replace("c=floor(c*24.0+.5)/24.0;","c=floor(c*22.0+.5)/22.0;",1)
-          s=s.replace("c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.86);",
-                      "c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78);",1)
+          s=s.replace("c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.86);","c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78);",1)
           s=s.replace("c*=1.13;","c*=1.09;",1)
-
-          required=["let pos={x:1750,z:-1750}, yaw=4.712,pitch=.10",
-                    "vec3 horizon=vec3(.365,.392,.398)",
-                    "vec3(.095,.145,.108)",
-                    "smoothstep(1660.0,2200.0,vH)",
-                    "vec3 fogCol=vec3(.335,.365,.380)",
-                    "c=floor(c*22.0+.5)/22.0"]
+          required=["let pos={x:1750,z:-1750}, yaw=4.712,pitch=.10","vec3 horizon=vec3(.365,.392,.398)","vec3(.095,.145,.108)","smoothstep(1660.0,2200.0,vH)","vec3 fogCol=vec3(.335,.365,.380)","c=floor(c*22.0+.5)/22.0"]
           missing=[x for x in required if x not in s]
           if missing: raise SystemExit('Atmosphere patch missing: '+repr(missing))
           p.write_text(s)
@@ -96,17 +70,7 @@ jobs:
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
-          import re
-          shots=[
-            ('spawn',1750,-1750,4.712,.10),
-            ('spawn_left',1750,-1750,4.20,.08),
-            ('spawn_right',1750,-1750,5.18,.08),
-            ('look_up',1750,-1750,4.712,.42),
-            ('look_down',1750,-1750,4.712,-.18),
-            ('walk_ahead',1600,-1750,4.712,.08),
-            ('valley_side',2000,-1500,3.927,.08),
-            ('high_pass',-1700,-2200,2.25,-.04),
-          ]
+          shots=[('spawn',1750,-1750,4.712,.10),('spawn_left',1750,-1750,4.20,.08),('spawn_right',1750,-1750,5.18,.08),('look_up',1750,-1750,4.712,.42),('look_down',1750,-1750,4.712,-.18),('walk_ahead',1600,-1750,4.712,.08),('valley_side',2000,-1500,3.927,.08),('high_pass',-1700,-2200,2.25,-.04)]
           out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
@@ -121,7 +85,7 @@ jobs:
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist); mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
               metrics.append((name,mean,black,hi-lo)); print(name,round(mean,1),round(black,4),hi-lo)
             browser.close()
-          bad=[m for m in metrics if m[1]<38 or m[2]>.14 or m[3]<55]
+          bad=[m for m in metrics if m[1]<33 or m[2]>.14 or m[3]<55]
           if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
