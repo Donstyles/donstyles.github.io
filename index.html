@@ -54,7 +54,7 @@ float terrain(vec2 p){ float macro=noise21(p*.00012+vec2(11,-7)); float r0=1.0-a
 const skyP = program(`#version 300 es
 precision highp float; out vec2 vUv; void main(){ vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2); vUv=p; gl_Position=vec4(p*2.0-1.0,0,1); }`, `#version 300 es
 precision highp float; in vec2 vUv; out vec4 o; uniform float uTime; uniform vec2 uLook; ${commonNoise}
-void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 zen=vec3(.165,.180,.176), hor=vec3(.430,.445,.433); vec3 col=mix(hor,zen,smoothstep(.05,.88,y)); vec2 q=vec2(uv.x*3.0+uLook.x*.12, uv.y*.7+uTime*.0014); float c=noise21(q*3.7)+.55*noise21(q*8.3+8.0)+.28*noise21(q*16.0-4.0); c/=1.83; float cloud=smoothstep(.52,.84,c)*(1.0-smoothstep(.58,1.0,y)); col=mix(col,vec3(.220,.235,.228),cloud*.22); float band=floor((1.0-y)*24.0)/24.0; col*=.94+.08*band; o=vec4(col,1); }
+void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 zen=vec3(.165,.180,.176), hor=vec3(.430,.445,.433); vec3 col=mix(hor,zen,smoothstep(.05,.88,y)); vec2 q=vec2(uv.x*3.0+uLook.x*.12, uv.y*.7+uTime*.0014); float c=noise21(q*3.7)+.55*noise21(q*8.3+8.0)+.28*noise21(q*16.0-4.0); c/=1.83; float cloud=(c-.5)*(1.0-smoothstep(.70,1.0,y)); col*=.965+cloud*.12; float band=floor((1.0-y)*24.0)/24.0; col*=.94+.08*band; o=vec4(col,1); }
 `);
 const terrainP = program(`#version 300 es
 precision highp float; layout(location=0) in vec2 aGrid; uniform mat4 uVP; uniform vec3 uCam; out float vDist; out float vH; out vec3 vWorld; out vec3 vNormal; ${commonNoise}
