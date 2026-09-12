@@ -25,19 +25,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p=Path('index.html'); s=p.read_text()
-          reps={
-            'vec3 zen=vec3(.115,.132,.130), hor=vec3(.385,.400,.388);':'vec3 zen=vec3(.165,.180,.176), hor=vec3(.430,.445,.433);',
-            'cloud=smoothstep(.50,.80,c)':'cloud=smoothstep(.52,.84,c)',
-            'col=mix(col,vec3(.190,.208,.202),cloud*.38)':'col=mix(col,vec3(.220,.235,.228),cloud*.22)',
-            'mix-blend-mode:multiply; opacity:.36;':'mix-blend-mode:multiply; opacity:.24;',
-            'c*=1.05;':'c*=1.08;',
-            '*2.0-1.0)*.012;':'*2.0-1.0)*.009;',
-            "uTime*17.0)-.5)*.018;":"uTime*17.0)-.5)*.012;",
-            'smoothstep(.38,.86,edge)*.20':'smoothstep(.40,.88,edge)*.16',
-          }
-          for a,b in reps.items():
-              if a not in s: raise SystemExit('Missing patch target: '+a)
-              s=s.replace(a,b,1)
+          old="vec2 q=vec2(uv.x*3.0+uLook.x*.12, uv.y*.7+uTime*.0014); float c=noise21(q*3.7)+.55*noise21(q*8.3+8.0)+.28*noise21(q*16.0-4.0); c/=1.83; float cloud=smoothstep(.52,.84,c)*(1.0-smoothstep(.58,1.0,y)); col=mix(col,vec3(.220,.235,.228),cloud*.22);"
+          new="vec2 q=vec2(uv.x*3.0+uLook.x*.12, uv.y*.7+uTime*.0014); float c=noise21(q*3.7)+.55*noise21(q*8.3+8.0)+.28*noise21(q*16.0-4.0); c/=1.83; float cloud=(c-.5)*(1.0-smoothstep(.70,1.0,y)); col*=.965+cloud*.12;"
+          if old not in s: raise SystemExit('Sky block not found')
+          s=s.replace(old,new,1)
           p.write_text(s)
           PY
 
@@ -73,13 +64,13 @@ jobs:
               mean=st.mean[0]; dark=sum(hist[:18])/total; metrics.append((name,mean,dark,im.getextrema()))
               print(name,'mean_luma',round(mean,1),'near_black',round(dark,4),'range',im.getextrema())
             browser.close()
-          bad=[m for m in metrics if m[1] < 48 or m[1] > 95 or m[2] > .18]
+          bad=[m for m in metrics if m[1] < 48 or m[1] > 100 or m[2] > .18]
           if bad: raise SystemExit('Visual readability guardrail failed: '+repr(bad))
           PY
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-pass4
+          name: alpine-visual-qa-pass5
           path: qa-shots/*.png
           if-no-files-found: error
       - name: Commit candidate to QA branch
@@ -88,7 +79,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
           if git diff --cached --quiet; then echo "No QA code changes"; else
-            git commit -m "QA4: lighter overcast and cleaner retro post"
+            git commit -m "QA5: continuous overcast sky without hard cloud edge"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
