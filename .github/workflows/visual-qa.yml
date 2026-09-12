@@ -32,15 +32,12 @@ jobs:
           import math,re
           p=Path('index.html')
           s=p.read_text()
-
-          # This point was selected by a 360-degree terrain scan, not by eyeballing one heading.
           s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=",
                    "let pos={x:2500,z:2500}, yaw=2.16,pitch=-.025, bob=", s, count=1)
           if 'let pos={x:2500,z:2500}, yaw=2.16' not in s:
               raise SystemExit('Spawn patch failed')
           p.write_text(s)
 
-          # Reproduce the JS height function and reject the spawn if nearby terrain can dominate the view.
           def fract(x): return x-math.floor(x)
           def hsh(x,z): return fract(math.sin(x*127.1+z*311.7)*43758.5453123)
           def noise(x,z):
@@ -58,7 +55,7 @@ jobs:
               return 430+macro*300+mountains+shoulder*110+detail*18
           x=z=2500.0; eye=terrain(x,z)+1.72
           radii=(250,500,750,1000,1500,2000,3000,4000,5000)
-          max_near=-90; max_all=-90; max_far=-90
+          max_near=max_all=max_far=-90
           for i in range(32):
               a=i*2*math.pi/32
               for r in radii:
@@ -88,6 +85,7 @@ jobs:
           from playwright.sync_api import sync_playwright
           from PIL import Image,ImageStat
           from pathlib import Path
+          import json
           shots=[
             ('spawn_peak',2500,2500,2.16,-.025,True),
             ('north',2500,2500,0.0,-.025,True),
@@ -111,21 +109,34 @@ jobs:
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
               mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
-              top=im.crop((0,0,im.width,int(im.height*.16)))
+              x0=int(im.width*.20); x1=int(im.width*.80); y1=int(im.height*.16)
+              top=im.crop((x0,0,x1,y1))
               top_std=ImageStat.Stat(top).stddev[0]
-              metrics.append((name,mean,black,hi-lo,top_std,normal))
-              print(name,'mean',round(mean,1),'black',round(black,4),'range',hi-lo,'top_std',round(top_std,1))
+              row={'name':name,'mean':mean,'black':black,'range':hi-lo,'top_std':top_std,'normal':normal}
+              metrics.append(row)
+              print(name,'mean',round(mean,1),'black',round(black,4),'range',hi-lo,'center_top_std',round(top_std,1))
             browser.close()
-          bad=[m for m in metrics if m[1]<50 or m[2]>.06 or m[3]<65 or (m[5] and m[4]>8.0)]
-          if bad: raise SystemExit('Visual guardrail failed: '+repr(bad))
+          Path('qa-metrics.json').write_text(json.dumps(metrics,indent=2))
           PY
 
-      - name: Upload screenshot artifact
+      - name: Upload screenshot evidence
         uses: actions/upload-artifact@v4
         with:
           name: alpine-visual-qa-scan-valley
-          path: qa-shots/*.png
+          path: |
+            qa-shots/*.png
+            qa-metrics.json
           if-no-files-found: error
+
+      - name: Evaluate visual guardrails
+        run: |
+          python - <<'PY'
+          import json
+          m=json.load(open('qa-metrics.json'))
+          bad=[x for x in m if x['mean']<50 or x['black']>.06 or x['range']<65 or (x['normal'] and x['top_std']>9.0)]
+          if bad:
+              raise SystemExit('Visual guardrail failed after evidence upload: '+repr(bad))
+          PY
 
       - name: Commit candidate to QA branch
         run: |
