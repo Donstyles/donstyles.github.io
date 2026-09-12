@@ -1,18 +1,18 @@
-name: Alpine Meadow Acceptance Gate
+name: Alpine Ridge Scale Review
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-meadow-acceptance
+  group: alpine-ridge-scale-review
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  accept:
+  review:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -25,16 +25,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Apply accepted meadow material
+      - name: Build taller craggy ridge candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html'); s=p.read_text()
-          replacement="""float meadowA=noise21(vWorld.xz*.0042); float meadowB=noise21(vWorld.xz*.015+vec2(17,-11)); float meadowC=floor(noise21(vWorld.xz*.028+vec2(-23,7))*5.0)/4.0; float meadowD=floor(noise21(vWorld.xz*.074+vec2(31,13))*4.0)/3.0; float wet=smoothstep(.65,.87,noise21(vWorld.xz*.0024+vec2(-5,21))); vec3 grass=mix(vec3(.125,.175,.132),vec3(.225,.255,.175),meadowA*.52+meadowB*.34+meadowD*.14); grass*=.88+.20*meadowC+.050*meadowD; float dry=smoothstep(.61,.83,noise21(vWorld.xz*.0095+vec2(27,-35)))*(1.0-wet); grass=mix(grass,vec3(.235,.230,.150),dry*.16); grass=mix(grass,vec3(.070,.105,.102),wet*.36); float stonePatch=smoothstep(.72,.90,noise21(vWorld.xz*.018+vec2(-39,16)))*smoothstep(.50,.80,noise21(vWorld.xz*.0062+vec2(15,44))); grass=mix(grass,vec3(.235,.238,.214),stonePatch*.22*(1.0-rock)); float valleyCenter=550.0*sin(vWorld.z*.00028)+220.0*sin(vWorld.z*.00071+1.3); float cross=abs(vWorld.x-valleyCenter); float forestMacro=noise21(vWorld.xz*.0017+vec2(43,-27)); float forestFine=noise21(vWorld.xz*.0052+vec2(-12,8)); float forestZone=smoothstep(170.0,520.0,cross)*(1.0-smoothstep(1510.0,1760.0,vH))*(1.0-rock); float forestMass=smoothstep(.42,.69,forestMacro*.70+forestFine*.30)*forestZone; grass=mix(grass,vec3(.070,.105,.095),forestMass*.40); float pathWarp=(noise21(vec2(vWorld.z*.00145,7.3))-.5)*22.0+(noise21(vec2(vWorld.z*.0045,19.1))-.5)*5.0; float pathDist=abs(vWorld.x-valleyCenter-pathWarp); float edgeJitter=(noise21(vWorld.xz*.042+vec2(3,29))-.5)*4.0; float trail=1.0-smoothstep(5.5,15.0,pathDist+edgeJitter); float trailWear=.58+.42*noise21(vWorld.xz*.067+vec2(-17,11)); float trailBreak=.62+.38*noise21(vWorld.xz*.025+vec2(22,-31)); vec3 trailCol=mix(vec3(.165,.155,.118),vec3(.238,.218,.160),trailBreak); grass=mix(grass,trailCol,trail*.43*trailWear*(1.0-rock)); float trailCore=1.0-smoothstep(1.8,5.5,pathDist); grass=mix(grass,trailCol*.93,trailCore*.16*trailWear*(1.0-rock));"""
-          pat=r"float meadowA=noise21\(vWorld\.xz\*\.0042\);.*?grass=mix\(grass,trailCol,trail\*\.68\*\(1\.0-rock\)\);"
-          s,n=re.subn(pat,replacement,s,count=1)
-          if n!=1: raise SystemExit('accepted meadow patch failed')
+          js="""function terrainHeight(x,z){ const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const signed=x-center, cross=Math.abs(signed); let t=clamp((cross-850)/2750,0,1); t=t*t*(3-2*t); const floorT=clamp(cross/1150,0,1); const macro=noise2(x*.00016+11,z*.00016-7); const r0=1-Math.abs(noise2(x*.00042-13,z*.00042+9)*2-1); const r1=1-Math.abs(noise2(x*.00092+17,z*.00092-23)*2-1); const r2=1-Math.abs(noise2(x*.00165+29,z*.00165+5)*2-1); const r3=1-Math.abs(noise2(x*.00310-37,z*.00310+41)*2-1); const shoulder=noise2(x*.0017+3,z*.0017-19); const detail=noise2(x*.0056-31,z*.0056+5); const valley=605+70*Math.pow(floorT,1.8)+(macro-.5)*92+(shoulder-.5)*32+(detail-.5)*11+14*Math.sin(z*.00058); const mountain=t*(930+650*Math.pow(r0,2.0)+360*Math.pow(r1,3.0)+220*Math.pow(r2,4.0)+(macro-.5)*145); const crags=t*(165*Math.pow(r2,3.0)+115*Math.pow(r3,5.0)); const phase=signed>=0?1.2:-1.2; const peakTrain=t*Math.pow(Math.max(0,Math.sin(z*.00105+phase)),4)*220; return valley+mountain+crags+peakTrain; }"""
+          s,n=re.subn(r"function terrainHeight\(x,z\)\{[^\n]*\}",js,s,count=1)
+          if n!=1: raise SystemExit('JS terrain patch failed')
+          glsl="""float terrain(vec2 p){ float center=550.0*sin(p.y*.00028)+220.0*sin(p.y*.00071+1.3); float signedv=p.x-center, cross=abs(signedv); float t=clamp((cross-850.0)/2750.0,0.0,1.0); t=t*t*(3.0-2.0*t); float floorT=clamp(cross/1150.0,0.0,1.0); float macro=noise21(p*.00016+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00042+vec2(-13,9))*2.0-1.0); float r1=1.0-abs(noise21(p*.00092+vec2(17,-23))*2.0-1.0); float r2=1.0-abs(noise21(p*.00165+vec2(29,5))*2.0-1.0); float r3=1.0-abs(noise21(p*.00310+vec2(-37,41))*2.0-1.0); float shoulder=noise21(p*.0017+vec2(3,-19)); float detail=noise21(p*.0056+vec2(-31,5)); float valley=605.0+70.0*pow(floorT,1.8)+(macro-.5)*92.0+(shoulder-.5)*32.0+(detail-.5)*11.0+14.0*sin(p.y*.00058); float mountain=t*(930.0+650.0*pow(r0,2.0)+360.0*pow(r1,3.0)+220.0*pow(r2,4.0)+(macro-.5)*145.0); float crags=t*(165.0*pow(r2,3.0)+115.0*pow(r3,5.0)); float phase=signedv>=0.0?1.2:-1.2; float peakTrain=t*pow(max(0.0,sin(p.y*.00105+phase)),4.0)*220.0; return valley+mountain+crags+peakTrain; }"""
+          s,n=re.subn(r"float terrain\(vec2 p\)\{[^\n]*\}",glsl,s,count=1)
+          if n!=1: raise SystemExit('GLSL terrain patch failed')
+          s=s.replace('float alt=smoothstep(1120.0,2080.0,vH);','float alt=smoothstep(1280.0,2250.0,vH);')
+          s=s.replace('float snowBase=smoothstep(1600.0,2130.0,vH)*mix(.18,1.0,smoothstep(.18,.72,n.y));','float snowBase=smoothstep(1880.0,2440.0,vH)*mix(.16,1.0,smoothstep(.16,.72,n.y));')
+          required=['peakTrain','930.0+650.0','smoothstep(1880.0,2440.0','smoothstep(1280.0,2250.0']
+          missing=[q for q in required if q not in s]
+          if missing: raise SystemExit('ridge candidate incomplete: '+repr(missing))
           p.write_text(s)
           PY
 
@@ -48,51 +55,38 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Touch movement and visual smoke
+      - name: Capture ridge scale views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image,ImageStat
           from pathlib import Path
-          import re,json
-          out=Path('qa-shots');out.mkdir(exist_ok=True)
-          metrics=[]; errors=[]
+          import json
+          shots=[
+            ('spawn',None,None,.28,.28),('left',None,None,-1.29,.28),('right',None,None,1.85,.28),('up',None,None,.28,.48),
+            ('valley0',212,0,.18,.28),('valley2000',382,2000,.12,.28),('valley4000',310,4000,.08,.28),('back',None,None,3.42,.28)
+          ]
+          out=Path('qa-shots');out.mkdir(exist_ok=True);metrics=[];errors=[]
           with sync_playwright() as p:
-            browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
-            ctx=browser.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1)
-            page=ctx.new_page(); page.on('pageerror',lambda e:errors.append(str(e)))
-            for name,qs in [('default','qa=1'),('left','qa=1&yaw=-1.29&pitch=.28'),('right','qa=1&yaw=1.85&pitch=.28'),('down','qa=1&yaw=.28&pitch=-.20')]:
-              page.goto('http://127.0.0.1:8000/index.html?'+qs,wait_until='load',timeout=30000);page.wait_for_timeout(1300)
+            b=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
+            ctx=b.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1);page=ctx.new_page()
+            page.on('pageerror',lambda e:errors.append(str(e)))
+            for name,x,z,yaw,pitch in shots:
+              q=['qa=1',f'yaw={yaw}',f'pitch={pitch}']
+              if x is not None:q.append(f'x={x}')
+              if z is not None:q.append(f'z={z}')
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(q),wait_until='load',timeout=30000);page.wait_for_timeout(1500)
               target=out/f'{name}.png';page.screenshot(path=str(target))
               im=Image.open(target).convert('L');h=im.histogram();total=sum(h);lo,hi=im.getextrema();metrics.append((name,ImageStat.Stat(im).mean[0],sum(h[:18])/total,hi-lo))
-            page.goto('http://127.0.0.1:8000/index.html?qa=1',wait_until='load',timeout=30000);page.wait_for_timeout(700)
-            page.keyboard.press('Backquote');page.wait_for_timeout(250)
-            before=page.locator('#debug').inner_text()
-            page.mouse.move(120,330);page.mouse.down();page.mouse.move(120,230,steps=4);page.wait_for_timeout(1300);page.mouse.up();page.wait_for_timeout(250)
-            after=page.locator('#debug').inner_text()
-            def coords(t):
-              m=re.search(r'(-?\d+)m\s+(-?\d+)m',t);return (int(m.group(1)),int(m.group(2))) if m else None
-            if not coords(before) or coords(before)==coords(after): raise SystemExit('Touch-style walking failed: '+repr((before,after)))
-            browser.close()
+            b.close()
           (out/'metrics.json').write_text(json.dumps({'metrics':metrics,'errors':errors},indent=2))
-          bad=[m for m in metrics if m[1]<48 or m[2]>.08 or m[3]<65]
-          if bad: raise SystemExit('Visual smoke failed: '+repr(bad))
           if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
 
-      - name: Upload acceptance shots
+      - name: Upload ridge review
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-meadow-acceptance
+          name: alpine-ridge-scale-review
           path: qa-shots/*
           if-no-files-found: error
-
-      - name: Commit accepted meadow pass
-        if: success()
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html
-          git commit -m 'Accept refined Alpine meadow and footpath'
-          git push origin HEAD:qa
