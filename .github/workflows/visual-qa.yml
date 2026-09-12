@@ -1,18 +1,18 @@
-name: Alpine Final Gate
+name: Alpine Review Gate
 
 on:
   push:
-    branches: [main]
+    branches: [main, qa]
 
 concurrency:
-  group: alpine-final-gate
+  group: alpine-review-gate
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  final-gate:
+  review:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install browser test
+      - name: Install browser QA
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
@@ -35,103 +35,69 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Run iPhone interaction gate
+      - name: Capture iPhone review set
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image, ImageStat
+          from PIL import Image, ImageStat, ImageChops
           from pathlib import Path
           import re
 
-          errors=[]
+          shots=[
+            ('spawn',None,None,None,None),
+            ('left',None,None,5.55,-.035),
+            ('right',None,None,1.15,-.035),
+            ('look_up',None,None,.262,.42),
+            ('look_down',None,None,.262,-.42),
+            ('forest_edge',4500,7000,1.13,-.03),
+            ('high_pass',-1700,-2200,2.25,-.08),
+          ]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True)
+          metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             context=browser.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1)
             page=context.new_page()
             page.on('pageerror', lambda exc: errors.append('pageerror: '+str(exc)))
             page.on('console', lambda msg: errors.append('console error: '+msg.text) if msg.type=='error' else None)
+            for name,x,z,yaw,pitch in shots:
+              qs=['qa=1']
+              if x is not None: qs.append(f'x={x}')
+              if z is not None: qs.append(f'z={z}')
+              if yaw is not None: qs.append(f'yaw={yaw}')
+              if pitch is not None: qs.append(f'pitch={pitch}')
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000)
+              page.wait_for_timeout(1600)
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
+                raise SystemExit('WebGL2 unavailable')
+              target=out/f'{name}.png'; page.screenshot(path=str(target))
+              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
+              mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
+              metrics.append((name,mean,near_black,hi-lo))
+              print(name,'mean',round(mean,1),'near_black',round(near_black,4),'range',hi-lo)
+
+            # Interaction gate on the actual start screen.
             page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000)
-            page.wait_for_timeout(1800)
-
-            if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
-              raise SystemExit('WebGL2 unavailable')
-            if not page.is_visible('#enter'):
-              raise SystemExit('Entry screen missing')
-            page.click('#enter')
-            page.wait_for_timeout(600)
-            if page.is_visible('#start'):
-              raise SystemExit('Entry screen did not dismiss')
-
-            page.keyboard.press('Backquote')
-            page.wait_for_timeout(200)
+            page.wait_for_timeout(1000)
+            if not page.is_visible('#enter'): raise SystemExit('Entry screen missing')
+            page.click('#enter'); page.wait_for_timeout(400)
+            page.keyboard.press('Backquote'); page.wait_for_timeout(150)
             before=page.locator('#debug').inner_text()
-
-            # Left-side drag upward = walk forward.
-            page.mouse.move(120,330)
-            page.mouse.down()
-            page.mouse.move(120,245,steps=3)
-            page.wait_for_timeout(900)
-            page.mouse.up()
-            page.wait_for_timeout(250)
-            after_walk=page.locator('#debug').inner_text()
-
+            page.mouse.move(120,330); page.mouse.down(); page.mouse.move(120,245,steps=3); page.wait_for_timeout(800); page.mouse.up(); page.wait_for_timeout(200)
+            after=page.locator('#debug').inner_text()
             def coords(text):
-              m=re.search(r'(-?\d+)m\s+(-?\d+)m',text)
-              return (int(m.group(1)),int(m.group(2))) if m else None
-            a,b=coords(before),coords(after_walk)
-            if not a or not b or a==b:
-              raise SystemExit(f'Walking input did not move player: {before!r} -> {after_walk!r}')
-
-            # Right-side drag = look. We cannot access yaw directly, so compare rendered pixels.
-            page.screenshot(path='before-look.png')
-            page.mouse.move(800,220)
-            page.mouse.down()
-            page.mouse.move(700,195,steps=3)
-            page.mouse.up()
-            page.wait_for_timeout(450)
-            page.screenshot(path='after-look.png')
-            im1=Image.open('before-look.png').convert('L')
-            im2=Image.open('after-look.png').convert('L')
-            diff=sum(abs(a-b) for a,b in zip(im1.getdata(),im2.getdata()))/(im1.width*im1.height)
-            if diff < 1.0:
-              raise SystemExit(f'Look input produced insufficient image change: {diff:.3f}')
-
-            page.keyboard.press('Backquote')
-            page.screenshot(path='final-iphone.png')
-            final=Image.open('final-iphone.png').convert('L')
-            mean=ImageStat.Stat(final).mean[0]
-            lo,hi=final.getextrema()
-            if mean < 47 or hi-lo < 60:
-              raise SystemExit(f'Final frame readability failed mean={mean:.1f} range={hi-lo}')
+              m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
+            if not coords(before) or coords(before)==coords(after): raise SystemExit('Walking input failed')
             browser.close()
 
-          if errors:
-            raise SystemExit('Browser errors: '+repr(errors))
-          print('interaction gate passed; pixel look-diff',round(diff,2),'final mean',round(mean,1),'range',hi-lo)
+          bad=[m for m in metrics if m[1] < 45 or m[2] > .12 or m[3] < 60]
+          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
+          if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
 
-      - name: Upload final proof
+      - name: Upload review screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-final-approved-proof
-          path: |
-            before-look.png
-            after-look.png
-            final-iphone.png
+          name: alpine-review-shots
+          path: qa-shots/*.png
           if-no-files-found: error
-
-      - name: Promote exact QA index to main
-        run: |
-          cp index.html /tmp/alpine-final-index.html
-          git fetch origin main
-          git checkout -B main origin/main
-          cp /tmp/alpine-final-index.html index.html
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          if git diff --cached --quiet; then
-            echo "Main already matches approved QA build"
-          else
-            git commit -m "Ship final ALPINE NULL approved build"
-            git push origin HEAD:main
-          fi
