@@ -1,11 +1,11 @@
-name: Alpine Scenic Sweep
+name: Alpine Spawn Candidate Review
 
 on:
   push:
     branches: [qa]
 
 concurrency:
-  group: alpine-scenic-sweep
+  group: alpine-spawn-review
   cancel-in-progress: true
 
 permissions:
@@ -30,30 +30,34 @@ jobs:
         run: |
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
-      - name: Capture analyzed valley yaw sweep
+      - name: Capture six analyzed spawn candidates
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
           shots=[
-            ('n_000',0.000),('ne_045',0.785),('e_090',1.571),('se_135',2.356),
-            ('s_180',3.142),('sw_225',3.927),('w_270',4.712),('nw_315',5.498)
+            ('A_2000_-1500_south',2000,-1500,3.142,0.10),
+            ('B_2000_-1500_sw',2000,-1500,3.927,0.10),
+            ('C_2000_-1750_e',2000,-1750,1.571,0.10),
+            ('D_2000_-1750_se',2000,-1750,1.963,0.10),
+            ('E_1750_-2000_e',1750,-2000,1.571,0.10),
+            ('F_1750_-1750_w',1750,-1750,4.712,0.10),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             page=browser.new_page(viewport={'width':932,'height':430})
-            for name,yaw in shots:
-              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x=2000&z=-1500&yaw={yaw}&pitch=0.075',wait_until='load',timeout=30000)
+            for name,x,z,yaw,pitch in shots:
+              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
               page.wait_for_timeout(1300)
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); print(name,round(ImageStat.Stat(im).mean[0],1),im.getextrema())
             browser.close()
           PY
-      - name: Upload scenic sweep
+      - name: Upload spawn candidates
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-scenic-yaw-sweep
+          name: alpine-spawn-candidates
           path: qa-shots/*.png
           if-no-files-found: error
