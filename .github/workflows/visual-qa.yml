@@ -1,26 +1,43 @@
-name: Alpine Scenic Gaze Search
+name: Alpine Trail And Spawn Candidate
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-gaze-search
+  group: alpine-trail-spawn
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  review:
+  build-review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: qa
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Patch valley-floor spawn and trail
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html'); s=p.read_text()
+          s,n=re.subn(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:-246,z:-1750}, yaw=.28,pitch=.28, bob=", s, count=1)
+          if n!=1: raise SystemExit('spawn patch failed')
+          old="float pathWarp=(noise21(vWorld.xz*.010+vec2(9,-17))-.5)*4.0; float trail=1.0-smoothstep(4.0,13.0,abs(vWorld.x-valleyCenter+pathWarp)); float trailBreak=.72+.28*noise21(vWorld.xz*.045+vec2(2,31)); vec3 trailCol=mix(vec3(.175,.160,.112),vec3(.225,.205,.140),trailBreak); grass=mix(grass,trailCol,trail*.55*(1.0-rock));"
+          new="float pathWarp=(noise21(vWorld.xz*.010+vec2(9,-17))-.5)*6.0; float trail=1.0-smoothstep(5.0,21.0,abs(vWorld.x-valleyCenter+pathWarp)); float trailBreak=.68+.32*noise21(vWorld.xz*.045+vec2(2,31)); vec3 trailCol=mix(vec3(.205,.180,.125),vec3(.285,.250,.165),trailBreak); grass=mix(grass,trailCol,trail*.68*(1.0-rock));"
+          if old not in s: raise SystemExit('trail anchor missing')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+
       - name: Install browser QA
         run: |
           pip install playwright pillow
@@ -29,39 +46,65 @@ jobs:
         run: |
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
-      - name: Capture scenic gaze candidates
+      - name: Capture candidate
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image,ImageStat
           from pathlib import Path
-          import json
+          import json,re
           shots=[
-            ('A_diag_p25',-246,-1750,5.55,.25),
-            ('A_diag_p30',-246,-1750,5.55,.30),
-            ('A_forward_p28',-246,-1750,0.0,.28),
-            ('A_back_p28',-246,-1750,3.142,.28),
-            ('A_left_p28',-246,-1750,4.712,.28),
-            ('A_right_p28',-246,-1750,1.571,.28),
-            ('B_diag_p28',-572,-3000,.38,.28),
-            ('C_forward_p28',212,0,0.0,.28),
+            ('default',None,None,None,None),
+            ('yaw018',-246,-1750,.18,.28),
+            ('yaw035',-246,-1750,.35,.28),
+            ('left90',-246,-1750,4.992,.18),
+            ('right90',-246,-1750,1.851,.18),
+            ('back',-246,-1750,3.422,.18),
+            ('look_down',-246,-1750,.28,-.20),
+            ('walk_ahead',-52,-1080,.28,.22),
           ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             page=browser.new_page(viewport={'width':932,'height':430})
+            page.on('pageerror',lambda exc:errors.append('pageerror: '+str(exc)))
+            page.on('console',lambda msg:errors.append('console: '+msg.text) if msg.type=='error' else None)
             for name,x,z,yaw,pitch in shots:
-              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000); page.wait_for_timeout(1600)
+              qs=['qa=1']
+              if x is not None: qs.append(f'x={x}')
+              if z is not None: qs.append(f'z={z}')
+              if yaw is not None: qs.append(f'yaw={yaw}')
+              if pitch is not None: qs.append(f'pitch={pitch}')
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000); page.wait_for_timeout(1600)
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist); mean=ImageStat.Stat(im).mean[0]; lo,hi=im.getextrema(); near=sum(hist[:18])/total
               metrics.append({'name':name,'mean':mean,'near_black':near,'range':hi-lo}); print(name,round(mean,1),round(near,4),hi-lo)
+            # interaction smoke test from actual default spawn
+            page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000); page.wait_for_timeout(600)
+            if not page.is_visible('#enter'): errors.append('entry missing')
+            else:
+              page.click('#enter'); page.wait_for_timeout(250); page.keyboard.press('Backquote'); page.wait_for_timeout(100)
+              before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(850); page.keyboard.up('KeyW'); page.wait_for_timeout(120); after=page.locator('#debug').inner_text()
+              def coords(t):
+                m=re.search(r'(-?\d+)m\s+(-?\d+)m',t); return (int(m.group(1)),int(m.group(2))) if m else None
+              if not coords(before) or coords(before)==coords(after): errors.append('movement failed')
             browser.close()
-          (out/'metrics.json').write_text(json.dumps(metrics,indent=2))
+          (out/'metrics.json').write_text(json.dumps({'metrics':metrics,'errors':errors},indent=2))
+          if errors: raise SystemExit(repr(errors))
           PY
-      - name: Upload gaze search
+      - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-scenic-gaze-search
+          name: alpine-trail-spawn-review
           path: qa-shots/*
           if-no-files-found: error
+      - name: Commit candidate to QA
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Move spawn to valley floor and strengthen trail" || exit 0
+          git pull --rebase origin qa
+          git push origin HEAD:qa
