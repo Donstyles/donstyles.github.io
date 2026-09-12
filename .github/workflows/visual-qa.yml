@@ -1,11 +1,11 @@
-name: Alpine Trail And Spawn Candidate
+name: Alpine Meadow Polish Candidate
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-trail-spawn
+  group: alpine-meadow-polish
   cancel-in-progress: true
 
 permissions:
@@ -13,28 +13,32 @@ permissions:
 
 jobs:
   build-review:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: qa
           fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Patch valley-floor spawn and trail
+      - name: Patch meadow texture and trail
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
-          p=Path('index.html'); s=p.read_text()
-          s,n=re.subn(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:-246,z:-1750}, yaw=.28,pitch=.28, bob=", s, count=1)
-          if n!=1: raise SystemExit('spawn patch failed')
-          old="float pathWarp=(noise21(vWorld.xz*.010+vec2(9,-17))-.5)*4.0; float trail=1.0-smoothstep(4.0,13.0,abs(vWorld.x-valleyCenter+pathWarp)); float trailBreak=.72+.28*noise21(vWorld.xz*.045+vec2(2,31)); vec3 trailCol=mix(vec3(.175,.160,.112),vec3(.225,.205,.140),trailBreak); grass=mix(grass,trailCol,trail*.55*(1.0-rock));"
-          new="float pathWarp=(noise21(vWorld.xz*.010+vec2(9,-17))-.5)*6.0; float trail=1.0-smoothstep(5.0,21.0,abs(vWorld.x-valleyCenter+pathWarp)); float trailBreak=.68+.32*noise21(vWorld.xz*.045+vec2(2,31)); vec3 trailCol=mix(vec3(.205,.180,.125),vec3(.285,.250,.165),trailBreak); grass=mix(grass,trailCol,trail*.68*(1.0-rock));"
-          if old not in s: raise SystemExit('trail anchor missing')
-          s=s.replace(old,new,1)
+          p=Path('index.html')
+          s=p.read_text()
+          replacement="""float meadowA=noise21(vWorld.xz*.0042); float meadowB=noise21(vWorld.xz*.015+vec2(17,-11)); float meadowC=floor(noise21(vWorld.xz*.028+vec2(-23,7))*5.0)/4.0; float meadowD=floor(noise21(vWorld.xz*.074+vec2(31,13))*4.0)/3.0; float wet=smoothstep(.65,.87,noise21(vWorld.xz*.0024+vec2(-5,21))); vec3 grass=mix(vec3(.125,.175,.132),vec3(.225,.255,.175),meadowA*.52+meadowB*.34+meadowD*.14); grass*=.88+.20*meadowC+.055*meadowD; float dry=smoothstep(.61,.83,noise21(vWorld.xz*.0095+vec2(27,-35)))*(1.0-wet); grass=mix(grass,vec3(.245,.238,.150),dry*.19); grass=mix(grass,vec3(.070,.105,.102),wet*.38); float stonePatch=smoothstep(.70,.89,noise21(vWorld.xz*.018+vec2(-39,16)))*smoothstep(.46,.78,noise21(vWorld.xz*.0062+vec2(15,44))); grass=mix(grass,vec3(.245,.245,.215),stonePatch*.27*(1.0-rock)); float valleyCenter=550.0*sin(vWorld.z*.00028)+220.0*sin(vWorld.z*.00071+1.3); float cross=abs(vWorld.x-valleyCenter); float forestMacro=noise21(vWorld.xz*.0017+vec2(43,-27)); float forestFine=noise21(vWorld.xz*.0052+vec2(-12,8)); float forestZone=smoothstep(170.0,520.0,cross)*(1.0-smoothstep(1510.0,1760.0,vH))*(1.0-rock); float forestMass=smoothstep(.42,.69,forestMacro*.70+forestFine*.30)*forestZone; grass=mix(grass,vec3(.070,.105,.095),forestMass*.40); float pathWarp=(noise21(vec2(vWorld.z*.00155,7.3))-.5)*30.0+(noise21(vec2(vWorld.z*.0048,19.1))-.5)*7.0; float pathDist=abs(vWorld.x-valleyCenter-pathWarp); float trailShoulder=1.0-smoothstep(12.0,38.0,pathDist); float trailCore=1.0-smoothstep(3.5,15.0,pathDist); float trailBreak=.66+.34*noise21(vWorld.xz*.041+vec2(2,31)); vec3 trailCol=mix(vec3(.225,.198,.135),vec3(.325,.286,.188),trailBreak); grass=mix(grass,trailCol,trailShoulder*.62*(1.0-rock)); grass=mix(grass,trailCol*1.075,trailCore*.38*(1.0-rock)); float trailEdge=smoothstep(15.0,25.0,pathDist)*(1.0-smoothstep(25.0,42.0,pathDist)); grass=mix(grass,vec3(.105,.155,.105),trailEdge*.13*(1.0-rock));"""
+          pat=r"float meadowA=noise21\(vWorld\.xz\*\.0042\);.*?grass=mix\(grass,trailCol,trail\*\.68\*\(1\.0-rock\)\);"
+          s,n=re.subn(pat,replacement,s,count=1)
+          if n!=1: raise SystemExit('ground material patch failed')
+          required=['float meadowD=','float stonePatch=','float trailShoulder=','float trailCore=','float trailEdge=']
+          missing=[q for q in required if q not in s]
+          if missing: raise SystemExit('missing ground polish: '+repr(missing))
           p.write_text(s)
           PY
 
@@ -42,69 +46,79 @@ jobs:
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
+
       - name: Start server
         run: |
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
+
       - name: Capture candidate
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image,ImageStat
+          from PIL import Image, ImageStat
           from pathlib import Path
           import json,re
           shots=[
-            ('default',None,None,None,None),
-            ('yaw018',-246,-1750,.18,.28),
-            ('yaw035',-246,-1750,.35,.28),
-            ('left90',-246,-1750,4.992,.18),
-            ('right90',-246,-1750,1.851,.18),
-            ('back',-246,-1750,3.422,.18),
-            ('look_down',-246,-1750,.28,-.20),
-            ('walk_ahead',-52,-1080,.28,.22),
+            ('default',None,None),
+            ('yaw018',.18,.28),
+            ('yaw035',.35,.28),
+            ('left90',-1.29,.28),
+            ('right90',1.85,.28),
+            ('back',3.42,.28),
+            ('look_down',.28,-.20),
+            ('walk_ahead',.28,.22),
           ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]; errors=[]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True)
+          metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
-            page=browser.new_page(viewport={'width':932,'height':430})
-            page.on('pageerror',lambda exc:errors.append('pageerror: '+str(exc)))
-            page.on('console',lambda msg:errors.append('console: '+msg.text) if msg.type=='error' else None)
-            for name,x,z,yaw,pitch in shots:
+            context=browser.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1)
+            page=context.new_page()
+            page.on('pageerror', lambda exc: errors.append('pageerror: '+str(exc)))
+            page.on('console', lambda msg: errors.append('console error: '+msg.text) if msg.type=='error' else None)
+            for name,yaw,pitch in shots:
               qs=['qa=1']
-              if x is not None: qs.append(f'x={x}')
-              if z is not None: qs.append(f'z={z}')
               if yaw is not None: qs.append(f'yaw={yaw}')
               if pitch is not None: qs.append(f'pitch={pitch}')
-              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000); page.wait_for_timeout(1600)
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000)
+              page.wait_for_timeout(1500)
+              if name=='walk_ahead':
+                page.keyboard.down('KeyW'); page.wait_for_timeout(2400); page.keyboard.up('KeyW'); page.wait_for_timeout(500)
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise SystemExit('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
-              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist); mean=ImageStat.Stat(im).mean[0]; lo,hi=im.getextrema(); near=sum(hist[:18])/total
-              metrics.append({'name':name,'mean':mean,'near_black':near,'range':hi-lo}); print(name,round(mean,1),round(near,4),hi-lo)
-            # interaction smoke test from actual default spawn
-            page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000); page.wait_for_timeout(600)
-            if not page.is_visible('#enter'): errors.append('entry missing')
-            else:
-              page.click('#enter'); page.wait_for_timeout(250); page.keyboard.press('Backquote'); page.wait_for_timeout(100)
-              before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(850); page.keyboard.up('KeyW'); page.wait_for_timeout(120); after=page.locator('#debug').inner_text()
-              def coords(t):
-                m=re.search(r'(-?\d+)m\s+(-?\d+)m',t); return (int(m.group(1)),int(m.group(2))) if m else None
-              if not coords(before) or coords(before)==coords(after): errors.append('movement failed')
+              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
+              mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
+              metrics.append({'name':name,'mean':mean,'near_black':near_black,'range':hi-lo})
+
+            # Movement smoke test from the real default spawn.
+            page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000); page.wait_for_timeout(700)
+            if not page.is_visible('#enter'): raise SystemExit('Entry screen missing')
+            page.click('#enter'); page.wait_for_timeout(300); page.keyboard.press('Backquote'); page.wait_for_timeout(150)
+            before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(1000); page.keyboard.up('KeyW'); page.wait_for_timeout(150); after=page.locator('#debug').inner_text()
+            def coords(text):
+              m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
+            if not coords(before) or coords(before)==coords(after): raise SystemExit('Walking input failed')
             browser.close()
           (out/'metrics.json').write_text(json.dumps({'metrics':metrics,'errors':errors},indent=2))
-          if errors: raise SystemExit(repr(errors))
+          if errors: raise SystemExit('Browser errors: '+repr(errors))
+          bad=[m for m in metrics if m['mean']<48 or m['near_black']>.08 or m['range']<65]
+          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           PY
+
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-trail-spawn-review
+          name: alpine-meadow-polish-review
           path: qa-shots/*
           if-no-files-found: error
+
       - name: Commit candidate to QA
         if: success()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git commit -m "Move spawn to valley floor and strengthen trail" || exit 0
-          git pull --rebase origin qa
+          git commit -m 'Polish Alpine meadow texture and trail readability'
           git push origin HEAD:qa
