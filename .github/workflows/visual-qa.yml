@@ -1,11 +1,11 @@
-name: Alpine Far Mountain Matte Review
+name: Alpine Far Skyline Tuning
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-far-mountain-matte
+  group: alpine-far-skyline-tuning
   cancel-in-progress: true
 
 permissions:
@@ -25,18 +25,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build far mountain sky candidate
+      - name: Build tuned skyline candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('index.html'); s=p.read_text()
           old="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.365,.392,.398), zenith=vec3(.125,.143,.160); vec3 col=mix(horizon,zenith,smoothstep(.02,.98,y)); vec2 q=vec2(uv.x*7.0+uLook.x*.52,uv.y*15.0+uLook.y*1.25+uTime*.0021); float c=.52*noise21(q*1.8+vec2(7,-3))+.30*noise21(q*3.8+vec2(-9,4))+.18*noise21(q*8.2+vec2(13,8)); float texture=(c-.5)*.036; float mask=smoothstep(.08,.30,y)*(1.0-smoothstep(.97,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.075)/.15,2.0)); col=mix(col,vec3(.405,.425,.430),mist*.24); float band=floor((1.0-y)*38.0)/38.0; col*=.980+.028*band; o=vec4(col,1); }"""
-          new="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.365,.392,.398), zenith=vec3(.125,.143,.160); vec3 col=mix(horizon,zenith,smoothstep(.02,.98,y)); vec2 q=vec2(uv.x*7.0+uLook.x*.52,uv.y*15.0+uLook.y*1.25+uTime*.0021); float c=.52*noise21(q*1.8+vec2(7,-3))+.30*noise21(q*3.8+vec2(-9,4))+.18*noise21(q*8.2+vec2(13,8)); float texture=(c-.5)*.032; float cloudMask=smoothstep(.08,.30,y)*(1.0-smoothstep(.97,1.0,y)); col+=vec3(texture*cloudMask); float theta=uLook.x+(uv.x-.5)*1.96; float base=.405-uLook.y*.56; float n0=noise21(vec2(theta*.72+8.0,2.5)); float n1=noise21(vec2(theta*1.46-4.0,7.1)); float spike0=pow(max(0.0,1.0-abs(sin(theta*2.15+1.7))),5.0); float top0=base+.075+.085*n0+.095*spike0; float m0=smoothstep(base-.018,base+.008,y)*(1.0-smoothstep(top0-.009,top0+.004,y)); col=mix(col,vec3(.285,.310,.317),m0*.72); float farBase=base+.015; float n2=noise21(vec2(theta*.98-13.0,4.6)); float spike1=pow(max(0.0,1.0-abs(sin(theta*3.05-2.2))),7.0); float top1=farBase+.095+.095*n2+.145*spike1; float m1=smoothstep(farBase-.012,farBase+.006,y)*(1.0-smoothstep(top1-.007,top1+.003,y)); col=mix(col,vec3(.252,.279,.289),m1*.78); float capPeak=smoothstep(.205,.305,top1-farBase); float snowBand=smoothstep(top1-.035,top1-.010,y)*(1.0-smoothstep(top1-.006,top1+.002,y))*m1*capPeak; float broken=.48+.52*noise21(vec2(theta*7.0+21.0,y*55.0)); col=mix(col,vec3(.575,.600,.602),snowBand*broken*.56); float mist=exp(-pow((y-.075)/.15,2.0)); col=mix(col,vec3(.405,.425,.430),mist*.24); float band=floor((1.0-y)*38.0)/38.0; col*=.980+.028*band; o=vec4(col,1); }"""
-          if s.count(old)!=1: raise SystemExit('sky shader anchor mismatch')
-          s=s.replace(old,new)
-          for q in ['float theta=uLook.x','float top0=','float top1=','snowBand']:
-            if q not in s: raise SystemExit('missing sky feature '+q)
-          p.write_text(s)
+          new="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.365,.392,.398), zenith=vec3(.125,.143,.160); vec3 col=mix(horizon,zenith,smoothstep(.02,.98,y)); vec2 q=vec2(uv.x*7.0+uLook.x*.52,uv.y*15.0+uLook.y*1.25+uTime*.0021); float c=.52*noise21(q*1.8+vec2(7,-3))+.30*noise21(q*3.8+vec2(-9,4))+.18*noise21(q*8.2+vec2(13,8)); float texture=(c-.5)*.030; float cloudMask=smoothstep(.08,.30,y)*(1.0-smoothstep(.97,1.0,y)); col+=vec3(texture*cloudMask); float theta=uLook.x+(uv.x-.5)*1.96; float base=.398-uLook.y*.54; float n0=noise21(vec2(theta*.72+8.0,2.5)); float n1=noise21(vec2(theta*1.46-4.0,7.1)); float spike0=pow(max(0.0,1.0-abs(sin(theta*2.15+1.7))),5.0); float top0=base+.095+.105*n0+.115*spike0; float m0=smoothstep(base-.018,base+.008,y)*(1.0-smoothstep(top0-.009,top0+.004,y)); col=mix(col,vec3(.296,.320,.326),m0*.60); float farBase=base+.010; float n2=noise21(vec2(theta*.98-13.0,4.6)); float spike1=pow(max(0.0,1.0-abs(sin(theta*3.05-2.2))),7.0); float top1=farBase+.145+.125*n2+.205*spike1; float m1=smoothstep(farBase-.012,farBase+.006,y)*(1.0-smoothstep(top1-.007,top1+.003,y)); col=mix(col,vec3(.274,.298,.306),m1*.67); float capPeak=smoothstep(.285,.410,top1-farBase); float snowBand=smoothstep(top1-.030,top1-.010,y)*(1.0-smoothstep(top1-.006,top1+.002,y))*m1*capPeak; float broken=.40+.60*noise21(vec2(theta*7.0+21.0,y*55.0)); col=mix(col,vec3(.545,.570,.575),snowBand*broken*.42); float mist=exp(-pow((y-.075)/.15,2.0)); col=mix(col,vec3(.405,.425,.430),mist*.24); float band=floor((1.0-y)*38.0)/38.0; col*=.980+.028*band; o=vec4(col,1); }"""
+          if s.count(old)!=1: raise SystemExit('sky anchor mismatch')
+          s=s.replace(old,new); p.write_text(s)
           PY
 
       - name: Install browser QA
@@ -49,35 +46,30 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture far-mountain views
+      - name: Capture tuned skyline
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image,ImageStat
           from pathlib import Path
           import json
-          shots=[
-            ('spawn',.28,.28),('left45',-.50,.28),('right45',1.05,.28),('left90',-1.29,.28),
-            ('right90',1.85,.28),('back',3.42,.28),('up',.28,.48),('level',.28,.08)
-          ]
+          shots=[('spawn',.28,.28),('forward_low',.28,.18),('left45',-.50,.28),('right45',1.05,.28),('left90',-1.29,.28),('right90',1.85,.28),('back',3.42,.28),('up',.28,.48)]
           out=Path('qa-shots');out.mkdir(exist_ok=True);metrics=[];errors=[]
           with sync_playwright() as p:
             b=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
-            ctx=b.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1);page=ctx.new_page()
-            page.on('pageerror',lambda e:errors.append(str(e)))
+            ctx=b.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1);page=ctx.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
             for name,yaw,pitch in shots:
-              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000);page.wait_for_timeout(1400)
-              target=out/f'{name}.png';page.screenshot(path=str(target))
-              im=Image.open(target).convert('L');h=im.histogram();total=sum(h);lo,hi=im.getextrema();metrics.append((name,ImageStat.Stat(im).mean[0],sum(h[:18])/total,hi-lo))
+              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000);page.wait_for_timeout(1350)
+              target=out/f'{name}.png';page.screenshot(path=str(target));im=Image.open(target).convert('L');h=im.histogram();total=sum(h);lo,hi=im.getextrema();metrics.append((name,ImageStat.Stat(im).mean[0],sum(h[:18])/total,hi-lo))
             b.close()
           (out/'metrics.json').write_text(json.dumps({'metrics':metrics,'errors':errors},indent=2))
           if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
 
-      - name: Upload matte review
+      - name: Upload tuned skyline
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-far-mountain-matte-review
+          name: alpine-far-skyline-tuning
           path: qa-shots/*
           if-no-files-found: error
