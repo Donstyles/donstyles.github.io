@@ -1,0 +1,110 @@
+name: Alpine Visual QA
+
+on:
+  push:
+    branches: [qa]
+
+permissions:
+  contents: write
+
+jobs:
+  visual-qa:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Patch QA build
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text()
+          reps={
+            "gl.uniform3f(uni(treeP,'uUp'),up[0],up[1],up[2]);":"gl.uniform3f(uni(treeP,'uUp'),0,1,0);",
+            "vec3 zen=vec3(.050,.071,.070), hor=vec3(.235,.262,.248);":"vec3 zen=vec3(.085,.105,.104), hor=vec3(.315,.335,.320);",
+            "vec3 moss=vec3(.115,.145,.116), stone=vec3(.245,.250,.225), cold=vec3(.43,.45,.40);":"vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47);",
+            "col*=.80+.22*floor(micro*4.0)/3.0; col*=nd;":"col*=.88+.18*floor(micro*4.0)/3.0; col*=mix(.78,1.0,nd);",
+            "vec3 fogCol=vec3(.185,.210,.200);":"vec3 fogCol=vec3(.245,.268,.255);",
+            "c=floor(c*22.0+.5)/22.0; c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.68); c*=.94;":"c=floor(c*30.0+.5)/30.0; c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78); c*=1.05;",
+            "c*=1.0-smoothstep(.32,.77,edge)*.34;":"c*=1.0-smoothstep(.38,.86,edge)*.20;",
+            "mix-blend-mode:multiply; opacity:.66;":"mix-blend-mode:multiply; opacity:.36;",
+          }
+          for a,b in reps.items():
+              s=s.replace(a,b)
+          old="if(new URLSearchParams(location.search).has('test')){document.getElementById('start').style.display='none';started=true;}"
+          new="""const qaParams=new URLSearchParams(location.search);\nif(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';started=true;}\nif(qaParams.has('x')) pos.x=Number(qaParams.get('x'))||pos.x;\nif(qaParams.has('z')) pos.z=Number(qaParams.get('z'))||pos.z;\nif(qaParams.has('yaw')) yaw=Number(qaParams.get('yaw'))||0;\nif(qaParams.has('pitch')) pitch=Number(qaParams.get('pitch'))||0;\npos.y=terrainHeight(pos.x,pos.z)+1.72;"""
+          s=s.replace(old,new)
+          p.write_text(s)
+          PY
+
+      - name: Install Playwright
+        run: |
+          pip install playwright pillow
+          python -m playwright install --with-deps chromium
+
+      - name: Start local server
+        run: |
+          python -m http.server 8000 > /tmp/alpine-server.log 2>&1 &
+          echo $! > /tmp/alpine-server.pid
+          sleep 2
+
+      - name: Capture gameplay views
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          from PIL import Image, ImageStat
+          from pathlib import Path
+          shots=[
+            ('spawn',178,-612,2.34,-0.055),
+            ('valley',600,-300,1.55,-0.02),
+            ('ridge',-450,850,3.6,-0.08),
+            ('forest',100,-950,0.4,-0.03),
+            ('uphill',900,400,5.1,0.18),
+            ('downlook',178,-612,2.34,-0.35),
+          ]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True)
+          with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True,args=[
+              '--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader',
+              '--enable-unsafe-swiftshader','--disable-gpu-sandbox'
+            ])
+            page=browser.new_page(viewport={'width':1536,'height':709})
+            for name,x,z,yaw,pitch in shots:
+              url=f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}'
+              page.goto(url,wait_until='load',timeout=30000)
+              page.wait_for_timeout(1800)
+              ok=page.evaluate("!!document.querySelector('#game').getContext('webgl2')")
+              if not ok: raise RuntimeError('WebGL2 unavailable in QA runner')
+              target=out/f'{name}.png'
+              page.screenshot(path=str(target))
+              im=Image.open(target).convert('L')
+              st=ImageStat.Stat(im)
+              print(name,'mean_luma',round(st.mean[0],1),'range',im.getextrema())
+            browser.close()
+          PY
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alpine-visual-qa
+          path: qa-shots/*.png
+          if-no-files-found: error
+
+      - name: Commit QA patch to branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --cached --quiet; then
+            echo "No QA code changes"
+          else
+            git commit -m "Fix billboard rendering and visual range"
+            git push origin HEAD:qa
+          fi
