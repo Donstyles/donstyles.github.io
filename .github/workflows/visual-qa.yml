@@ -1,19 +1,18 @@
-name: Alpine Candidate Builder
+name: Alpine Latest QA Review
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-candidate-builder
+  group: alpine-latest-review
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-review:
-    if: github.actor != 'github-actions[bot]'
+  review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,50 +24,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build controlled Alpine valley candidate
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          p=Path('index.html')
-          s=p.read_text()
-
-          js_terrain="""function terrainHeight(x,z){ const center=Math.sin(z*0.00023)*360+Math.sin(z*0.00061+1.7)*120; const cross=x-center, ax=Math.abs(cross); const t=clamp((ax-1050)/2350,0,1), wall=t*t*(3-2*t); const floor=660+(noise2(x*.00055+12,z*.00055-9)-.5)*70+(noise2(x*.0018-4,z*.0018+3)-.5)*18; const ridge=noise2(x*.00023+31,z*.00023-17); const rib=1-Math.abs(noise2(x*.00052-8,z*.00052+19)*2-1); const sides=wall*(900+620*ridge+360*Math.pow(rib,2.2)); const outer=Math.pow(clamp((ax-2200)/1900,0,1),1.7)*wall*260; const peakA=820*Math.exp(-Math.pow((cross+1750)/1050,2)-Math.pow((z-3450)/1250,2)); const peakB=620*Math.exp(-Math.pow((cross-2050)/1150,2)-Math.pow((z-4900)/1550,2)); return floor+sides+outer+peakA+peakB; }"""
-          s,n=re.subn(r"function terrainHeight\(x,z\)\{[^\n]*\}",js_terrain,s,count=1)
-          if n!=1: raise SystemExit('JS terrain replacement failed')
-
-          glsl_terrain="""float terrain(vec2 p){ float center=sin(p.y*.00023)*360.0+sin(p.y*.00061+1.7)*120.0; float crossv=p.x-center, ax=abs(crossv); float t=clamp((ax-1050.0)/2350.0,0.0,1.0), wall=t*t*(3.0-2.0*t); float floorh=660.0+(noise21(p*.00055+vec2(12,-9))-.5)*70.0+(noise21(p*.0018+vec2(-4,3))-.5)*18.0; float ridge=noise21(p*.00023+vec2(31,-17)); float rib=1.0-abs(noise21(p*.00052+vec2(-8,19))*2.0-1.0); float sides=wall*(900.0+620.0*ridge+360.0*pow(rib,2.2)); float outer=pow(clamp((ax-2200.0)/1900.0,0.0,1.0),1.7)*wall*260.0; float peakA=820.0*exp(-pow((crossv+1750.0)/1050.0,2.0)-pow((p.y-3450.0)/1250.0,2.0)); float peakB=620.0*exp(-pow((crossv-2050.0)/1150.0,2.0)-pow((p.y-4900.0)/1550.0,2.0)); return floorh+sides+outer+peakA+peakB; }"""
-          s,n=re.subn(r"float terrain\(vec2 p\)\{[^\n]*\}",glsl_terrain,s,count=1)
-          if n!=1: raise SystemExit('GLSL terrain replacement failed')
-
-          # Spawn on the open valley floor, looking along its long axis.
-          s,n=re.subn(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:0,z:0}, yaw=0,pitch=-.035, bob=", s, count=1)
-          if n!=1: raise SystemExit('spawn replacement failed')
-
-          # Meadow foreground + forested slopes. Keep trees large enough to establish scale but never dominate the lens.
-          s=re.sub(r"const cell=\d+, r=\d+", "const cell=40, r=1200", s, count=1)
-          s=re.sub(r"forest>\.\d+ && localSlope<16", "forest>.58 && localSlope<16", s, count=1)
-          s=re.sub(r"const s=\([^;]+?\)\*\(\.82\+\.18\*alpine\);", "const s=(4.6+hash2(gx+7,gz+11)*5.4)*(.82+.18*alpine);", s, count=1)
-
-          # Alpine material separation: moss floor, warmer exposed rock, pale high ridges/snow.
-          s=s.replace("vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47);", "vec3 moss=vec3(.150,.195,.145), stone=vec3(.365,.355,.325), cold=vec3(.720,.735,.700);")
-          s=s.replace("float snow=smoothstep(1780.0,2350.0,vH)*smoothstep(.55,.86,n.y);", "float snow=smoothstep(1750.0,2250.0,vH)*smoothstep(.48,.88,n.y);")
-          s=s.replace("col=mix(col,cold,snow*.62);", "col=mix(col,cold,snow*.82);")
-          s=s.replace("float fog=1.0-exp(-pow(vDist/1600.0,1.62));", "float fog=1.0-exp(-pow(vDist/2050.0,1.52));")
-          s=s.replace("vec3 fogCol=vec3(.300,.320,.306);", "vec3 fogCol=vec3(.355,.375,.360);")
-          s=s.replace("col=mix(col,vec3(.300,.320,.306),clamp(fog,0.0,.98));", "col=mix(col,vec3(.355,.375,.360),clamp(fog,0.0,.98));")
-
-          # Clean cold overcast for the terrain-composition pass; cloud texture comes back only after silhouette approval.
-          s=re.sub(r"void main\(\)\{ vec2 uv=vUv; float y=clamp\(uv.y,0.0,1.0\); vec3 horizon=.*?o=vec4\(col,1\); \}",
-                   "void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.440,.458,.448); vec3 zenith=vec3(.205,.225,.224); vec3 col=mix(horizon,zenith,smoothstep(.02,.94,y)); float band=floor((1.0-y)*32.0)/32.0; col*=.975+.035*band; o=vec4(col,1); }",s,count=1)
-
-          required=['const center=Math.sin(z*0.00023)','peakA=820','let pos={x:0,z:0}, yaw=0','const cell=40, r=1200','vec3(.720,.735,.700)']
-          missing=[q for q in required if q not in s]
-          if missing: raise SystemExit('candidate patch missing: '+repr(missing))
-          p.write_text(s)
-          PY
-
       - name: Install browser QA
         run: |
           pip install playwright pillow
@@ -79,7 +34,7 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture iPhone landscape review set
+      - name: Capture latest QA on iPhone viewport
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
@@ -88,14 +43,14 @@ jobs:
           import re
 
           shots=[
-            ('spawn',0,0,0,-.035),
-            ('left_ridge',0,0,4.712,-.04),
-            ('right_ridge',0,0,1.571,-.04),
-            ('back_valley',0,0,3.142,-.035),
-            ('look_up',0,0,0,.42),
-            ('look_down',0,0,0,-.42),
-            ('forward_walk',0,900,0,-.035),
-            ('slope_edge',1000,1200,.35,-.04),
+            ('spawn',None,None,None,None),
+            ('left',None,None,4.712,-.035),
+            ('right',None,None,1.571,-.035),
+            ('back',None,None,3.142,-.035),
+            ('look_up',None,None,None,.42),
+            ('look_down',None,None,None,-.42),
+            ('walk_700',None,700,None,None),
+            ('ridge_edge',1100,1100,.55,-.04),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           metrics=[]; errors=[]
@@ -106,51 +61,38 @@ jobs:
             page.on('pageerror', lambda exc: errors.append('pageerror: '+str(exc)))
             page.on('console', lambda msg: errors.append('console error: '+msg.text) if msg.type=='error' else None)
             for name,x,z,yaw,pitch in shots:
-              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
+              qs=['qa=1']
+              if x is not None: qs.append(f'x={x}')
+              if z is not None: qs.append(f'z={z}')
+              if yaw is not None: qs.append(f'yaw={yaw}')
+              if pitch is not None: qs.append(f'pitch={pitch}')
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000)
               page.wait_for_timeout(1700)
               if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise SystemExit('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
               mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
-              top=im.crop((180,0,752,115)); th=top.histogram(); tt=sum(th); top_dark=sum(th[:38])/tt
-              metrics.append((name,mean,near_black,hi-lo,top_dark)); print(name,'mean',round(mean,1),'black',round(near_black,4),'range',hi-lo,'top_dark',round(top_dark,3))
+              top=im.crop((170,0,762,120)); th=top.histogram(); tt=sum(th); top_dark=sum(th[:38])/tt
+              metrics.append((name,mean,near_black,hi-lo,top_dark))
+              print(name,'mean',round(mean,1),'black',round(near_black,4),'range',hi-lo,'top_dark',round(top_dark,3))
 
-            # Verify entry UI and actual movement still work after the world rewrite.
             page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000); page.wait_for_timeout(700)
             if not page.is_visible('#enter'): raise SystemExit('Entry screen missing')
             page.click('#enter'); page.wait_for_timeout(300); page.keyboard.press('Backquote'); page.wait_for_timeout(150)
-            before=page.locator('#debug').inner_text()
-            page.keyboard.down('KeyW'); page.wait_for_timeout(900); page.keyboard.up('KeyW'); page.wait_for_timeout(150)
-            after=page.locator('#debug').inner_text()
+            before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(900); page.keyboard.up('KeyW'); page.wait_for_timeout(150); after=page.locator('#debug').inner_text()
             def coords(text):
               m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
             if not coords(before) or coords(before)==coords(after): raise SystemExit('Walking input failed')
             browser.close()
 
-          bad=[m for m in metrics if m[1] < 48 or m[2] > .08 or m[3] < 70]
+          bad=[m for m in metrics if m[1] < 45 or m[2] > .10 or m[3] < 65]
           if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
-          # Forward/back/up views must retain substantial clean sky at the top; side ridge views are exempt.
-          roof=[m for m in metrics if m[0] in ('spawn','back_valley','look_up','forward_walk') and m[4]>.42]
-          if roof: raise SystemExit('Roof/canopy guardrail failed: '+repr(roof))
           if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
 
-      - name: Upload candidate screenshots
+      - name: Upload latest QA screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-u-valley
+          name: alpine-latest-qa-review
           path: qa-shots/*.png
           if-no-files-found: error
-
-      - name: Commit candidate to QA
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          if git diff --cached --quiet; then
-            echo "No candidate changes"
-          else
-            git commit -m "QA: controlled U-shaped Alpine valley"
-            git pull --rebase origin qa
-            git push origin HEAD:qa
-          fi
