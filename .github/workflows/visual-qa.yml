@@ -41,10 +41,9 @@ jobs:
           }
           for a,b in reps.items(): s=s.replace(a,b)
 
-          # Pass 2: trees were vertically inverted; keep billboards world-upright.
+          # Pass 2: stable world-upright, correctly oriented trees.
           s=s.replace("vUv=vec2(aCorner.x+.5,aCorner.y+.5);", "vUv=vec2(aCorner.x+.5,1.0-(aCorner.y+.5));")
 
-          # Replace the over-spiky ridged terrain with broad Alpine-scale ranges.
           old_js='''function terrainHeight(x,z){
             let amp=1, freq=0.00072, sum=0, norm=0;
             for(let i=0;i<5;i++){
@@ -56,7 +55,7 @@ jobs:
             const detail=noise2(x*0.0042-7,z*0.0042+13);
             return 180 + (sum/norm)*1500 + basin*650 + detail*18;
           }'''
-          new_js='''function terrainHeight(x,z){
+          pass2_js='''function terrainHeight(x,z){
             const macro=noise2(x*0.00018+11,z*0.00018-7);
             const r0=1-Math.abs(noise2(x*0.00040-21,z*0.00040+31)*2-1);
             const r1=1-Math.abs(noise2(x*0.00078+47,z*0.00078-13)*2-1);
@@ -65,28 +64,53 @@ jobs:
             const mountains=Math.pow(r0,2.25)*(430+760*macro)+Math.pow(r1,3.0)*170;
             return 430+macro*300+mountains+shoulder*90+detail*12;
           }'''
-          s=s.replace(old_js,new_js)
+          pass3_js='''function terrainHeight(x,z){
+            const macro=noise2(x*0.00018+11,z*0.00018-7);
+            const r0=1-Math.abs(noise2(x*0.00040-21,z*0.00040+31)*2-1);
+            const r1=1-Math.abs(noise2(x*0.00078+47,z*0.00078-13)*2-1);
+            const r2=1-Math.abs(noise2(x*0.00135-9,z*0.00135+6)*2-1);
+            const shoulder=noise2(x*0.00125-5,z*0.00125+17);
+            const detail=noise2(x*0.0036+9,z*0.0036-29);
+            const mountains=Math.pow(r0,2.25)*(650+1150*macro)+Math.pow(r1,3.0)*250+Math.pow(r2,4.0)*80*Math.pow(r0,1.2);
+            return 380+macro*260+mountains+shoulder*70+detail*10;
+          }'''
+          s=s.replace(old_js,pass3_js).replace(pass2_js,pass3_js)
 
           old_gl="float terrain(vec2 p){ float amp=1.0,freq=.00072,sum=0.0,norm=0.0; for(int i=0;i<5;i++){ float n=noise21(p*freq); float r=1.0-abs(n*2.0-1.0); sum+=r*r*amp; norm+=amp; amp*=.52; freq*=2.03; } float basin=noise21(p*.00027+vec2(53,-19)); float detail=noise21(p*.0042+vec2(-7,13)); return 180.0+(sum/norm)*1500.0+basin*650.0+detail*18.0; }"
-          new_gl="float terrain(vec2 p){ float macro=noise21(p*.00018+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00040+vec2(-21,31))*2.0-1.0); float r1=1.0-abs(noise21(p*.00078+vec2(47,-13))*2.0-1.0); float shoulder=noise21(p*.00125+vec2(-5,17)); float detail=noise21(p*.0036+vec2(9,-29)); float mountains=pow(r0,2.25)*(430.0+760.0*macro)+pow(r1,3.0)*170.0; return 430.0+macro*300.0+mountains+shoulder*90.0+detail*12.0; }"
-          s=s.replace(old_gl,new_gl)
+          pass2_gl="float terrain(vec2 p){ float macro=noise21(p*.00018+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00040+vec2(-21,31))*2.0-1.0); float r1=1.0-abs(noise21(p*.00078+vec2(47,-13))*2.0-1.0); float shoulder=noise21(p*.00125+vec2(-5,17)); float detail=noise21(p*.0036+vec2(9,-29)); float mountains=pow(r0,2.25)*(430.0+760.0*macro)+pow(r1,3.0)*170.0; return 430.0+macro*300.0+mountains+shoulder*90.0+detail*12.0; }"
+          pass3_gl="float terrain(vec2 p){ float macro=noise21(p*.00018+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00040+vec2(-21,31))*2.0-1.0); float r1=1.0-abs(noise21(p*.00078+vec2(47,-13))*2.0-1.0); float r2=1.0-abs(noise21(p*.00135+vec2(-9,6))*2.0-1.0); float shoulder=noise21(p*.00125+vec2(-5,17)); float detail=noise21(p*.0036+vec2(9,-29)); float mountains=pow(r0,2.25)*(650.0+1150.0*macro)+pow(r1,3.0)*250.0+pow(r2,4.0)*80.0*pow(r0,1.2); return 380.0+macro*260.0+mountains+shoulder*70.0+detail*10.0; }"
+          s=s.replace(old_gl,pass3_gl).replace(pass2_gl,pass3_gl)
 
-          # Longer vistas, slightly sparser/smaller forests, brighter atmospheric depth.
-          s=s.replace("aGrid*vec2(1850.0)", "aGrid*vec2(2600.0)")
-          s=s.replace("vDist/660.0", "vDist/920.0")
-          s=s.replace("vDist/540.0", "vDist/760.0")
+          # Pass 2/3 vistas and forest tuning.
+          s=s.replace("aGrid*vec2(1850.0)", "aGrid*vec2(3400.0)")
+          s=s.replace("aGrid*vec2(2600.0)", "aGrid*vec2(3400.0)")
+          s=s.replace("vDist/660.0", "vDist/1250.0")
+          s=s.replace("vDist/920.0", "vDist/1250.0")
+          s=s.replace("vDist/540.0", "vDist/980.0")
+          s=s.replace("vDist/760.0", "vDist/980.0")
           s=s.replace("vec3 fogCol=vec3(.245,.268,.255)", "vec3 fogCol=vec3(.285,.305,.292)")
           s=s.replace("col=mix(col,vec3(.185,.210,.200),clamp(fog,0.0,.98));", "col=mix(col,vec3(.285,.305,.292),clamp(fog,0.0,.98));")
           s=s.replace("hor=vec3(.315,.335,.320)", "hor=vec3(.345,.360,.344)")
-          s=s.replace("const cell=28, r=760", "const cell=31, r=820")
+          s=s.replace("const cell=28, r=760", "const cell=31, r=900")
+          s=s.replace("const cell=31, r=820", "const cell=31, r=900")
           s=s.replace("if(forest>.22 && localSlope<18 && alpine>0){ const s=(6.5+hash2(gx+7,gz+11)*8.5)*(.8+.2*alpine);", "if(forest>.30 && localSlope<16 && alpine>0){ const s=(5.5+hash2(gx+7,gz+11)*6.5)*(.82+.18*alpine);")
-          s=s.replace("perspective(P,68*Math.PI/180,lowW/lowH,.35,4100)", "perspective(P,68*Math.PI/180,lowW/lowH,.35,5200)")
+          s=s.replace("perspective(P,68*Math.PI/180,lowW/lowH,.35,4100)", "perspective(P,68*Math.PI/180,lowW/lowH,.35,6800)")
+          s=s.replace("perspective(P,68*Math.PI/180,lowW/lowH,.35,5200)", "perspective(P,68*Math.PI/180,lowW/lowH,.35,6800)")
+
+          # Stronger alpine material separation without sacrificing the late-90s palette.
+          s=s.replace("float alt=smoothstep(650.0,2150.0,vH); float rock=smoothstep(.60,.92,1.0-n.y); float snow=smoothstep(1780.0,2350.0,vH)*smoothstep(.55,.86,n.y);",
+                      "float alt=smoothstep(700.0,1750.0,vH); float rock=smoothstep(.48,.84,1.0-n.y); float snow=smoothstep(1450.0,1900.0,vH)*smoothstep(.42,.80,n.y);")
+          s=s.replace("vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47); vec3 col=mix(moss,stone,max(rock,alt*.58)); col=mix(col,cold,snow*.62); float micro=noise21(vWorld.xz*.035); col*=.88+.18*floor(micro*4.0)/3.0; col*=mix(.78,1.0,nd);",
+                      "vec3 moss=vec3(.145,.180,.145), stone=vec3(.285,.300,.280), cold=vec3(.56,.58,.54); vec3 col=mix(moss,stone,max(rock,alt*.62)); col=mix(col,cold,snow*.72); float micro=noise21(vWorld.xz*.028); float crag=noise21(vWorld.xz*.010+vec2(19,-7)); col*=.86+.20*floor(micro*5.0)/4.0; col=mix(col,col*.72,smoothstep(.62,.88,crag)*rock*.55); col*=mix(.80,1.0,nd);")
+          s=s.replace("col=mix(col,vec3(.115,.132,.127),cloud*.62);", "col=mix(col,vec3(.165,.180,.172),cloud*.48);")
+          s=s.replace("vec3 col=t.rgb*(.78+.20*vShade);", "vec3 col=t.rgb*(.88+.18*vShade);")
 
           # Deterministic camera controls for visual regression screenshots.
           if "const qaParams=new URLSearchParams(location.search);" not in s:
             old="if(new URLSearchParams(location.search).has('test')){document.getElementById('start').style.display='none';started=true;}"
             new="""const qaParams=new URLSearchParams(location.search);\nif(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';started=true;}\nif(qaParams.has('x')) pos.x=Number(qaParams.get('x'))||pos.x;\nif(qaParams.has('z')) pos.z=Number(qaParams.get('z'))||pos.z;\nif(qaParams.has('yaw')) yaw=Number(qaParams.get('yaw'))||0;\nif(qaParams.has('pitch')) pitch=Number(qaParams.get('pitch'))||0;\npos.y=terrainHeight(pos.x,pos.z)+1.72;"""
             s=s.replace(old,new)
+          s=s.replace("if(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';started=true;}", "if(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';document.getElementById('hint').style.opacity='0';started=true;}")
 
           p.write_text(s)
           PY
@@ -123,7 +147,7 @@ jobs:
               '--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader',
               '--enable-unsafe-swiftshader','--disable-gpu-sandbox'
             ])
-            page=browser.new_page(viewport={'width':1536,'height':709})
+            page=browser.new_page(viewport={'width':932,'height':430})
             for name,x,z,yaw,pitch in shots:
               url=f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}'
               page.goto(url,wait_until='load',timeout=30000)
@@ -157,7 +181,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: fix trees and broaden Alpine vistas"
+            git commit -m "QA: stronger alpine relief and iPhone readability"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
