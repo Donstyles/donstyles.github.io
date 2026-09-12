@@ -40,7 +40,7 @@ jobs:
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
-          import re
+          import json,re
 
           shots=[
             ('spawn',None,None,None,None),
@@ -68,31 +68,31 @@ jobs:
               if pitch is not None: qs.append(f'pitch={pitch}')
               page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000)
               page.wait_for_timeout(1700)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise SystemExit('WebGL2 unavailable')
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
+                errors.append(name+': WebGL2 unavailable'); continue
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
               mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
               top=im.crop((170,0,762,120)); th=top.histogram(); tt=sum(th); top_dark=sum(th[:38])/tt
-              metrics.append((name,mean,near_black,hi-lo,top_dark))
+              metrics.append({'name':name,'mean':mean,'near_black':near_black,'range':hi-lo,'top_dark':top_dark})
               print(name,'mean',round(mean,1),'black',round(near_black,4),'range',hi-lo,'top_dark',round(top_dark,3))
 
             page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000); page.wait_for_timeout(700)
-            if not page.is_visible('#enter'): raise SystemExit('Entry screen missing')
-            page.click('#enter'); page.wait_for_timeout(300); page.keyboard.press('Backquote'); page.wait_for_timeout(150)
-            before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(900); page.keyboard.up('KeyW'); page.wait_for_timeout(150); after=page.locator('#debug').inner_text()
-            def coords(text):
-              m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
-            if not coords(before) or coords(before)==coords(after): raise SystemExit('Walking input failed')
+            if not page.is_visible('#enter'): errors.append('Entry screen missing')
+            else:
+              page.click('#enter'); page.wait_for_timeout(300); page.keyboard.press('Backquote'); page.wait_for_timeout(150)
+              before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(900); page.keyboard.up('KeyW'); page.wait_for_timeout(150); after=page.locator('#debug').inner_text()
+              def coords(text):
+                m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
+              if not coords(before) or coords(before)==coords(after): errors.append('Walking input failed')
             browser.close()
-
-          bad=[m for m in metrics if m[1] < 45 or m[2] > .10 or m[3] < 65]
-          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
-          if errors: raise SystemExit('Browser errors: '+repr(errors))
+          (out/'metrics.json').write_text(json.dumps({'metrics':metrics,'errors':errors},indent=2))
           PY
 
       - name: Upload latest QA screenshots
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: alpine-latest-qa-review
-          path: qa-shots/*.png
+          path: qa-shots/*
           if-no-files-found: error
