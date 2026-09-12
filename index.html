@@ -12,7 +12,7 @@
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#070a09; overscroll-behavior:none; touch-action:none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     #game { position:fixed; inset:0; width:100vw; height:100dvh; display:block; image-rendering:pixelated; image-rendering:crisp-edges; }
-    #veil { position:fixed; inset:0; pointer-events:none; z-index:4; background: radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,.22) 75%, rgba(0,0,0,.55) 100%), repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, rgba(0,0,0,.018) 1px 3px); mix-blend-mode:multiply; opacity:.24; }
+    #veil { position:fixed; inset:0; pointer-events:none; z-index:4; background: radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,.22) 75%, rgba(0,0,0,.55) 100%), repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, rgba(0,0,0,.018) 1px 3px); mix-blend-mode:multiply; opacity:.27; }
     #start { position:fixed; inset:0; z-index:8; display:flex; align-items:center; justify-content:center; background:rgba(5,8,8,.44); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
     #card { width:min(82vw,420px); text-align:center; color:#c8d1ca; text-shadow:0 1px 0 #000; letter-spacing:.08em; }
     #title { font-size:clamp(24px,6vw,44px); font-weight:800; letter-spacing:.15em; color:#e1e7e3; }
@@ -54,25 +54,25 @@ float terrain(vec2 p){ float macro=noise21(p*.00012+vec2(11,-7)); float r0=1.0-a
 const skyP = program(`#version 300 es
 precision highp float; out vec2 vUv; void main(){ vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2); vUv=p; gl_Position=vec4(p*2.0-1.0,0,1); }`, `#version 300 es
 precision highp float; in vec2 vUv; out vec4 o; uniform float uTime; uniform vec2 uLook; ${commonNoise}
-void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.455,.470,.460); vec3 zenith=vec3(.235,.255,.255); vec3 col=mix(horizon,zenith,smoothstep(.02,.92,y)); float band=floor((1.0-y)*30.0)/30.0; col*=.975+.035*band; o=vec4(col,1); }
+void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.365,.395,.388), zenith=vec3(.125,.150,.155); vec3 col=mix(horizon,zenith,smoothstep(.02,.94,y)); vec2 q=vec2(uv.x*6.5+uLook.x*.55,uv.y*2.2+uTime*.0025); float c=.65*noise21(q*2.0+vec2(7,-3))+.35*noise21(q*5.0+vec2(-9,4)); float cloud=(c-.5); float mask=smoothstep(.08,.40,y)*(1.0-smoothstep(.78,1.0,y)); col*=1.0+cloud*.16*mask; float mist=exp(-pow((y-.13)/.20,2.0)); col=mix(col,vec3(.390,.415,.405),mist*.12); float band=floor((1.0-y)*28.0)/28.0; col*=.965+.045*band; o=vec4(col,1); }
 `);
 const terrainP = program(`#version 300 es
 precision highp float; layout(location=0) in vec2 aGrid; uniform mat4 uVP; uniform vec3 uCam; out float vDist; out float vH; out vec3 vWorld; out vec3 vNormal; ${commonNoise}
 void main(){ vec2 world=uCam.xz + aGrid*vec2(4300.0); float h=terrain(world); float e=18.0; float hx=terrain(world+vec2(e,0.0))-h; float hz=terrain(world+vec2(0.0,e))-h; vNormal=normalize(vec3(-hx,e,-hz)); vWorld=vec3(world.x,h,world.y); vDist=distance(world,uCam.xz); vH=h; gl_Position=uVP*vec4(vWorld,1); }
 `, `#version 300 es
 precision highp float; in float vDist; in float vH; in vec3 vWorld; in vec3 vNormal; out vec4 o; uniform vec3 uCam; uniform vec3 uForward; uniform float uTime; ${commonNoise}
-void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.55,.72,.25)); float nd=.52+.48*max(dot(n,sun),0.0); float alt=smoothstep(780.0,1950.0,vH); float rock=smoothstep(.45,.82,1.0-n.y); float snow=smoothstep(1500.0,2100.0,vH)*mix(.24,1.0,smoothstep(.34,.82,n.y)); vec3 moss=vec3(.155,.190,.155), stone=vec3(.345,.350,.325), cold=vec3(.68,.695,.665); vec3 col=mix(moss,stone,max(rock,alt*.60)); col=mix(col,cold,snow*.70); float micro=noise21(vWorld.xz*.030); col*=.92+.14*floor(micro*5.0)/4.0; col*=nd; float fog=1.0-exp(-pow(vDist/1600.0,1.62)); float lowFog=noise21(vWorld.xz*.0017+uTime*.002)*.16; fog=clamp(fog+lowFog*smoothstep(160.0,900.0,vDist),0.0,.985); vec3 fogCol=vec3(.300,.320,.306); col=mix(col,fogCol,fog); o=vec4(col,1); }
+void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.55,.72,.25)); float nd=.52+.48*max(dot(n,sun),0.0); float alt=smoothstep(780.0,1950.0,vH); float rock=smoothstep(.45,.82,1.0-n.y); float snow=smoothstep(1500.0,2100.0,vH)*mix(.24,1.0,smoothstep(.34,.82,n.y)); vec3 moss=vec3(.155,.190,.155), stone=vec3(.345,.350,.325), cold=vec3(.80,.815,.790); vec3 col=mix(moss,stone,max(rock,alt*.60)); col=mix(col,cold,snow*.82); float micro=noise21(vWorld.xz*.030); col*=.92+.14*floor(micro*5.0)/4.0; col*=nd; float fog=1.0-exp(-pow(vDist/1600.0,1.62)); float lowFog=noise21(vWorld.xz*.0017+uTime*.002)*.16; fog=clamp(fog+lowFog*smoothstep(160.0,900.0,vDist),0.0,.985); vec3 fogCol=vec3(.355,.375,.365); col=mix(col,fogCol,fog); o=vec4(col,1); }
 `);
 const treeP = program(`#version 300 es
 precision highp float; layout(location=0) in vec2 aCorner; layout(location=1) in vec4 aTree; uniform mat4 uVP; uniform vec3 uCam; uniform vec3 uRight; uniform vec3 uUp; out vec2 vUv; out float vDist; out float vShade;
 void main(){ vec3 base=vec3(aTree.x,aTree.y,aTree.z); float s=aTree.w; vec3 pos=base + uRight*(aCorner.x*s) + uUp*((aCorner.y+.5)*s*2.25); vUv=vec2(aCorner.x+.5,1.0-(aCorner.y+.5)); vDist=distance(base.xz,uCam.xz); vShade=fract(s*.173); gl_Position=uVP*vec4(pos,1); }
 `, `#version 300 es
 precision highp float; in vec2 vUv; in float vDist; in float vShade; out vec4 o; uniform sampler2D uTree;
-void main(){ vec4 t=texture(uTree,vUv); if(t.a<.42)discard; vec3 col=t.rgb*(.78+.20*vShade); float fog=1.0-exp(-pow(vDist/900.0,1.48)); col=mix(col,vec3(.300,.320,.306),clamp(fog,0.0,.98)); o=vec4(col,1); }
+void main(){ vec4 t=texture(uTree,vUv); if(t.a<.42)discard; vec3 col=t.rgb*(.78+.20*vShade); float fog=1.0-exp(-pow(vDist/900.0,1.48)); col=mix(col,vec3(.355,.375,.365),clamp(fog,0.0,.98)); o=vec4(col,1); }
 `);
 const postP = program(`#version 300 es
 precision highp float; out vec2 vUv; void main(){ vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2); vUv=p; gl_Position=vec4(p*2.0-1.0,0,1); }`, `#version 300 es
-precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D uScene; uniform float uTime; uniform vec2 uResolution; float hash(vec2 p){return fract(sin(dot(p,vec2(91.7,237.1)))*43758.5453);} void main(){ vec2 uv=vUv; float edge=length(uv-.5); vec3 c=texture(uScene,uv).rgb; float d=(mod(gl_FragCoord.x+gl_FragCoord.y,2.0)*2.0-1.0)*.009; c+=d; c=floor(c*30.0+.5)/30.0; c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78); c*=1.08; c+= (hash(gl_FragCoord.xy+uTime*17.0)-.5)*.012; c*=1.0-smoothstep(.40,.88,edge)*.16; o=vec4(c,1); }
+precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D uScene; uniform float uTime; uniform vec2 uResolution; float hash(vec2 p){return fract(sin(dot(p,vec2(91.7,237.1)))*43758.5453);} void main(){ vec2 uv=vUv; float edge=length(uv-.5); vec3 c=texture(uScene,uv).rgb; float d=(mod(gl_FragCoord.x+gl_FragCoord.y,2.0)*2.0-1.0)*.009; c+=d; c=floor(c*24.0+.5)/24.0; c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.72); c*=1.06; c+= (hash(gl_FragCoord.xy+uTime*17.0)-.5)*.012; c*=1.0-smoothstep(.40,.88,edge)*.19; c*=.985+.015*step(.5,fract(gl_FragCoord.y*.5)); o=vec4(c,1); }
 `);
 const N=192; const verts=new Float32Array(N*N*2); let vi=0;
 for(let z=0;z<N;z++) for(let x=0;x<N;x++){ let nx=x/(N-1)*2-1, nz=z/(N-1)*2-1; nx=Math.sign(nx)*Math.pow(Math.abs(nx),1.55); nz=Math.sign(nz)*Math.pow(Math.abs(nz),1.55); verts[vi++]=nx; verts[vi++]=nz; }
