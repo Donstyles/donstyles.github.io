@@ -1,11 +1,11 @@
-name: Alpine Valley Floor Eye-line Search
+name: Alpine Scenic Gaze Search
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-eyeline-search
+  group: alpine-gaze-search
   cancel-in-progress: true
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
         run: |
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
-      - name: Capture scenic floor eye-lines
+      - name: Capture scenic gaze candidates
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
@@ -37,14 +37,14 @@ jobs:
           from pathlib import Path
           import json
           shots=[
-            ('A_forward_p12',-246,-1750,0.0,.12),
-            ('A_back_p12',-246,-1750,3.142,.12),
-            ('A_left_p12',-246,-1750,4.712,.12),
-            ('A_right_p12',-246,-1750,1.571,.12),
-            ('A_diag_p15',-246,-1750,5.55,.15),
-            ('B_forward_p15',-572,-3000,0.0,.15),
-            ('B_diag_p15',-572,-3000,.38,.15),
-            ('C_forward_p15',212,0,0.0,.15),
+            ('A_diag_p25',-246,-1750,5.55,.25),
+            ('A_diag_p30',-246,-1750,5.55,.30),
+            ('A_forward_p28',-246,-1750,0.0,.28),
+            ('A_back_p28',-246,-1750,3.142,.28),
+            ('A_left_p28',-246,-1750,4.712,.28),
+            ('A_right_p28',-246,-1750,1.571,.28),
+            ('B_diag_p28',-572,-3000,.38,.28),
+            ('C_forward_p28',212,0,0.0,.28),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]
           with sync_playwright() as p:
@@ -58,10 +58,10 @@ jobs:
             browser.close()
           (out/'metrics.json').write_text(json.dumps(metrics,indent=2))
           PY
-      - name: Upload eye-line search
+      - name: Upload gaze search
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-valley-floor-eyeline-search
+          name: alpine-scenic-gaze-search
           path: qa-shots/*
           if-no-files-found: error
