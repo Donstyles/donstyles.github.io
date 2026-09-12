@@ -29,30 +29,34 @@ jobs:
           p=Path('index.html')
           s=p.read_text()
 
-          js="function terrainHeight(x,z){ const macro=noise2(x*0.00012+11,z*0.00012-7); const r0=1-Math.abs(noise2(x*0.00028-21,z*0.00028+31)*2-1); const r1=1-Math.abs(noise2(x*0.00055+47,z*0.00055-13)*2-1); const shoulder=noise2(x*0.00110-5,z*0.00110+17); const detail=noise2(x*0.0028+9,z*0.0028-29); const mountains=Math.pow(r0,2.7)*(1050+1050*macro)+Math.pow(r1,3.0)*360; return 430+macro*300+mountains+shoulder*110+detail*18; }"
-          gs="float terrain(vec2 p){ float macro=noise21(p*.00012+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00028+vec2(-21,31))*2.0-1.0); float r1=1.0-abs(noise21(p*.00055+vec2(47,-13))*2.0-1.0); float shoulder=noise21(p*.00110+vec2(-5,17)); float detail=noise21(p*.0028+vec2(9,-29)); float mountains=pow(r0,2.7)*(1050.0+1050.0*macro)+pow(r1,3.0)*360.0; return 430.0+macro*300.0+mountains+shoulder*110.0+detail*18.0; }"
-          s,n=re.subn(r'function terrainHeight\(x,z\)\{[^\n]+\}',js,s,count=1)
-          if n!=1: raise SystemExit('Could not replace JS terrain')
-          s,n=re.subn(r'float terrain\(vec2 p\)\{[^\n]+\}',gs,s,count=1)
-          if n!=1: raise SystemExit('Could not replace GLSL terrain')
+          # Stable vertex normals: avoids screen-space derivative streaking/faceting in the foreground.
+          s=s.replace('out float vDist; out float vH; out vec3 vWorld; ${commonNoise}',
+                      'out float vDist; out float vH; out vec3 vWorld; out vec3 vNormal; ${commonNoise}',1)
+          s=s.replace('float h=terrain(world); vWorld=vec3(world.x,h,world.y); vDist=distance(world,uCam.xz); vH=h; gl_Position=uVP*vec4(vWorld,1);',
+                      'float h=terrain(world); float e=18.0; float hx=terrain(world+vec2(e,0.0))-h; float hz=terrain(world+vec2(0.0,e))-h; vNormal=normalize(vec3(-hx,e,-hz)); vWorld=vec3(world.x,h,world.y); vDist=distance(world,uCam.xz); vH=h; gl_Position=uVP*vec4(vWorld,1);',1)
+          s=s.replace('in float vDist; in float vH; in vec3 vWorld; out vec4 o;',
+                      'in float vDist; in float vH; in vec3 vWorld; in vec3 vNormal; out vec4 o;',1)
+          s=s.replace('vec3 dx=dFdx(vWorld), dy=dFdy(vWorld); vec3 n=normalize(cross(dx,dy)); if(n.y<0.0)n=-n;',
+                      'vec3 n=normalize(vNormal);',1)
 
-          s=re.sub(r'aGrid\*vec2\([0-9.]+\)', 'aGrid*vec2(4300.0)', s, count=1)
-          s=re.sub(r'pow\(vDist/[0-9.]+,1\.62\)', 'pow(vDist/1600.0,1.62)', s, count=1)
-          s=re.sub(r'vec3 fogCol=vec3\([^)]*\)', 'vec3 fogCol=vec3(.300,.320,.306)', s, count=1)
-          s=re.sub(r'vUv=vec2\(aCorner\.x\+\.5,[^;]+\);', 'vUv=vec2(aCorner.x+.5,1.0-(aCorner.y+.5));', s, count=1)
-          s=re.sub(r'pow\(vDist/[0-9.]+,1\.48\)', 'pow(vDist/900.0,1.48)', s, count=1)
-          s=re.sub(r'col=mix\(col,vec3\([^)]*\),clamp\(fog,0\.0,\.98\)\)', 'col=mix(col,vec3(.300,.320,.306),clamp(fog,0.0,.98))', s, count=1)
-          s=re.sub(r'const cell=[0-9]+, r=[0-9]+', 'const cell=34, r=1050', s, count=1)
-          s=re.sub(r'forest>\.[0-9]+', 'forest>.42', s, count=1)
-          s=re.sub(r'const s=\([0-9.]+\+hash2\(gx\+7,gz\+11\)\*[0-9.]+\)', 'const s=(5.2+hash2(gx+7,gz+11)*6.8)', s, count=1)
-          s=re.sub(r"let pos=\{x:[^}]+\}, yaw=[^,]+,pitch=[^,]+,", "let pos={x:0,z:0}, yaw=5.323,pitch=-.04,", s, count=1)
-          s=re.sub(r"gl\.uniform3f\(uni\(treeP,'uUp'\),[^;]+;", "gl.uniform3f(uni(treeP,'uUp'),0,1,0);", s, count=1)
-          s=s.replace("if(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';started=true;}",
-                      "if(qaParams.has('test')||qaParams.has('qa')){document.getElementById('start').style.display='none';document.getElementById('hint').style.opacity='0';started=true;}")
+          # Overcast, not a black cave ceiling.
+          s=s.replace('vec3 zen=vec3(.085,.105,.104), hor=vec3(.345,.360,.344);',
+                      'vec3 zen=vec3(.115,.132,.130), hor=vec3(.385,.400,.388);',1)
+          s=s.replace('cloud=smoothstep(.45,.72,c)', 'cloud=smoothstep(.50,.80,c)',1)
+          s=s.replace('col=mix(col,vec3(.115,.132,.127),cloud*.62)',
+                      'col=mix(col,vec3(.190,.208,.202),cloud*.38)',1)
 
-          required=['aGrid*vec2(4300.0)','vDist/1600.0','vDist/900.0','forest>.42','yaw=5.323','1.0-(aCorner.y+.5)',"uUp'),0,1,0"]
-          missing=[x for x in required if x not in s]
-          if missing: raise SystemExit('Missing candidate markers: '+repr(missing))
+          # Depth must be cleared each frame; otherwise old terrain/tree depth survives camera movement.
+          s=s.replace("gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,lowW,lowH);gl.disable(gl.DEPTH_TEST);",
+                      "gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,lowW,lowH);gl.clearDepth(1);gl.clear(gl.DEPTH_BUFFER_BIT);gl.disable(gl.DEPTH_TEST);",1)
+
+          # Slightly wider landscape composition.
+          s=s.replace('perspective(P,68*Math.PI/180,lowW/lowH,.35,5200)',
+                      'perspective(P,72*Math.PI/180,lowW/lowH,.35,5600)',1)
+
+          if "vNormal=normalize(vec3(-hx,e,-hz))" not in s: raise SystemExit('normal patch missing')
+          if "gl.clear(gl.DEPTH_BUFFER_BIT)" not in s: raise SystemExit('depth clear missing')
+          if "cloud=smoothstep(.50,.80,c)" not in s: raise SystemExit('sky patch missing')
           p.write_text(s)
           PY
 
@@ -70,7 +74,7 @@ jobs:
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image, ImageStat
+          from PIL import Image, ImageStat, ImageDraw
           from pathlib import Path
           shots=[
             ('spawn_peak',0,0,5.323,-0.04),
@@ -94,14 +98,14 @@ jobs:
               mean=st.mean[0]; dark=sum(hist[:18])/total; metrics.append((name,mean,dark,im.getextrema()))
               print(name,'mean_luma',round(mean,1),'near_black',round(dark,4),'range',im.getextrema())
             browser.close()
-          bad=[m for m in metrics if m[1] < 38 or m[2] > .38]
+          bad=[m for m in metrics if m[1] < 42 or m[2] > .25]
           if bad: raise SystemExit('Visual readability guardrail failed: '+repr(bad))
           PY
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-pass2
+          name: alpine-visual-qa-pass3
           path: qa-shots/*.png
           if-no-files-found: error
 
@@ -113,7 +117,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA2: alpine terrain, upright trees, cleaner vistas"
+            git commit -m "QA3: stable terrain normals, lighter overcast, depth clear"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
