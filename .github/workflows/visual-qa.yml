@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build flat-sky diagnostic candidate
+      - name: Build open-valley candidate
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -33,23 +33,30 @@ jobs:
           p=Path('index.html')
           s=p.read_text()
 
-          # Decisive diagnostic: zero procedural cloud masses. Only a graded overcast sky.
-          a=s.index('const skyP = program(')
-          b=s.index('const terrainP = program(', a)
+          # Open valley: low floor, visible mountain relief, but no wall filling the upper half of frame.
+          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:1500,z:3500}, yaw=2.618,pitch=-.025, bob=", s, count=1)
+
+          # Keep a clean overcast gradient for art-direction evaluation.
+          a=s.index('const skyP = program('); b=s.index('const terrainP = program(',a)
           sky=s[a:b]
-          flat='''void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.405,.425,.415); vec3 zenith=vec3(.180,.202,.200); vec3 col=mix(horizon,zenith,smoothstep(.02,.92,y)); float band=floor((1.0-y)*28.0)/28.0; col*=.97+.04*band; o=vec4(col,1); }'''
-          sky2=re.sub(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}', flat, sky, count=1)
-          if sky2==sky: raise SystemExit('Sky shader replacement failed')
-          s=s[:a]+sky2+s[b:]
+          flat='''void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.455,.470,.460); vec3 zenith=vec3(.235,.255,.255); vec3 col=mix(horizon,zenith,smoothstep(.02,.92,y)); float band=floor((1.0-y)*30.0)/30.0; col*=.975+.035*band; o=vec4(col,1); }'''
+          sky=re.sub(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',flat,sky,count=1)
+          s=s[:a]+sky+s[b:]
 
-          # Keep the scenic valley spawn and non-dominating tree scale in the diagnostic.
-          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:3750,z:5750}, yaw=.262,pitch=-.035, bob=", s, count=1)
-          s=re.sub(r"const cell=\d+, r=\d+", "const cell=38, r=1120", s, count=1)
-          s=re.sub(r"forest>\.\d+ && localSlope<16", "forest>.50 && localSlope<16", s, count=1)
-          s=re.sub(r"const s=\([^;]+?\)\*\(\.82\+\.18\*alpine\);", "const s=(4.8+hash2(gx+7,gz+11)*5.7)*(.82+.18*alpine);", s, count=1)
+          # Alpine material pass: raise ambient fill, expose rock faces, let snow wrap onto steep high faces.
+          old="vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.55,.72,.25)); float nd=.18+.82*max(dot(n,sun),0.0); float alt=smoothstep(650.0,2150.0,vH); float rock=smoothstep(.60,.92,1.0-n.y); float snow=smoothstep(1780.0,2350.0,vH)*smoothstep(.55,.86,n.y); vec3 moss=vec3(.155,.185,.150), stone=vec3(.310,.315,.285), cold=vec3(.50,.52,.47); vec3 col=mix(moss,stone,max(rock,alt*.58)); col=mix(col,cold,snow*.62); float micro=noise21(vWorld.xz*.035); col*=.88+.18*floor(micro*4.0)/3.0; col*=mix(.78,1.0,nd);"
+          new="vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.55,.72,.25)); float nd=.52+.48*max(dot(n,sun),0.0); float alt=smoothstep(780.0,1950.0,vH); float rock=smoothstep(.45,.82,1.0-n.y); float snow=smoothstep(1500.0,2100.0,vH)*mix(.24,1.0,smoothstep(.34,.82,n.y)); vec3 moss=vec3(.155,.190,.155), stone=vec3(.345,.350,.325), cold=vec3(.68,.695,.665); vec3 col=mix(moss,stone,max(rock,alt*.60)); col=mix(col,cold,snow*.70); float micro=noise21(vWorld.xz*.030); col*=.92+.14*floor(micro*5.0)/4.0; col*=nd;"
+          if old not in s: raise SystemExit('Terrain material target not found')
+          s=s.replace(old,new,1)
 
-          if 'horizon=vec3(.405,.425,.415)' not in s or 'noise21(q*3.7)' in s[a:s.index('const terrainP = program(',a)]:
-              raise SystemExit('Flat-sky diagnostic not clean')
+          # Smaller, less frequent nearby trees; still dense at distance.
+          s=re.sub(r"const cell=\d+, r=\d+", "const cell=39, r=1180", s, count=1)
+          s=re.sub(r"forest>\.\d+ && localSlope<16", "forest>.54 && localSlope<16", s, count=1)
+          s=re.sub(r"const s=\([^;]+?\)\*\(\.82\+\.18\*alpine\);", "const s=(4.4+hash2(gx+7,gz+11)*5.2)*(.84+.16*alpine);", s, count=1)
+
+          required=['let pos={x:1500,z:3500}, yaw=2.618','float nd=.52+.48','snow=smoothstep(1500.0,2100.0','forest>.54']
+          missing=[q for q in required if q not in s]
+          if missing: raise SystemExit('Open-valley patch missing: '+repr(missing))
           p.write_text(s)
           PY
 
@@ -63,20 +70,20 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture seven iPhone stress views
+      - name: Capture seven iPhone composition views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
           shots=[
-            ('spawn',3750,5750,.262,-.035),
-            ('spawn_left',3750,5750,5.55,-.035),
-            ('spawn_right',3750,5750,1.15,-.035),
-            ('pitch_up',3750,5750,.262,.42),
-            ('pitch_down',3750,5750,.262,-.42),
-            ('forest_edge',4500,7000,1.13,-.03),
-            ('high_pass',-1700,-2200,2.25,-.08),
+            ('spawn',1500,3500,2.618,-.025),
+            ('left',1500,3500,2.05,-.025),
+            ('right',1500,3500,3.18,-.025),
+            ('look_up',1500,3500,2.618,.34),
+            ('look_down',1500,3500,2.618,-.34),
+            ('valley_two',2500,3000,4.45,-.025),
+            ('forest_edge',500,0,.524,-.02),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           metrics=[]
@@ -92,18 +99,18 @@ jobs:
               mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
               metrics.append((name,mean,black,hi-lo)); print(name,round(mean,1),round(black,4),hi-lo)
             browser.close()
-          bad=[m for m in metrics if m[1] < 45 or m[2] > .10 or m[3] < 60]
+          bad=[m for m in metrics if m[1] < 50 or m[2] > .06 or m[3] < 65]
           if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           PY
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-flat-sky
+          name: alpine-visual-qa-open-valley
           path: qa-shots/*.png
           if-no-files-found: error
 
-      - name: Commit diagnostic candidate to QA branch
+      - name: Commit candidate to QA branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -111,7 +118,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: remove cloud mass for sky diagnostic"
+            git commit -m "QA: open valley and readable alpine materials"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
