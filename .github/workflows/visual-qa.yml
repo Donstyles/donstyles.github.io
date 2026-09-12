@@ -25,22 +25,49 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build clean overcast candidate
+      - name: Build true-scale alpine candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html')
           s=p.read_text()
-          if 'return (h>>>8)/16777216' not in s: raise SystemExit('Deterministic terrain missing')
+          if 'return (h>>>8)/16777216' not in s: raise SystemExit('Deterministic hash missing')
+
+          js="""function terrainHeight(x,z){ const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const cross=Math.abs(x-center); let t=clamp((cross-700)/2800,0,1); t=t*t*(3-2*t); const macro=noise2(x*.00016+11,z*.00016-7); const r0=1-Math.abs(noise2(x*.00042-13,z*.00042+9)*2-1); const r1=1-Math.abs(noise2(x*.00092+17,z*.00092-23)*2-1); const r2=1-Math.abs(noise2(x*.00165+29,z*.00165+5)*2-1); const shoulder=noise2(x*.0017+3,z*.0017-19); const detail=noise2(x*.0048-31,z*.0048+5); const valley=620+(macro-.5)*100+(shoulder-.5)*28+(detail-.5)*10; const mountain=t*(760+520*Math.pow(r0,2.1)+240*Math.pow(r1,3.0)+120*Math.pow(r2,4.0)+(macro-.5)*140); const crags=t*55*Math.pow(r2,3.0); return valley+mountain+crags; }"""
+          s,n=re.subn(r'function terrainHeight\(x,z\)\{[^\n]*\}',js,s,count=1)
+          if n!=1: raise SystemExit('JS terrain replacement failed')
+
+          glsl="""float terrain(vec2 p){ float center=550.0*sin(p.y*.00028)+220.0*sin(p.y*.00071+1.3); float cross=abs(p.x-center); float t=clamp((cross-700.0)/2800.0,0.0,1.0); t=t*t*(3.0-2.0*t); float macro=noise21(p*.00016+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00042+vec2(-13,9))*2.0-1.0); float r1=1.0-abs(noise21(p*.00092+vec2(17,-23))*2.0-1.0); float r2=1.0-abs(noise21(p*.00165+vec2(29,5))*2.0-1.0); float shoulder=noise21(p*.0017+vec2(3,-19)); float detail=noise21(p*.0048+vec2(-31,5)); float valley=620.0+(macro-.5)*100.0+(shoulder-.5)*28.0+(detail-.5)*10.0; float mountain=t*(760.0+520.0*pow(r0,2.1)+240.0*pow(r1,3.0)+120.0*pow(r2,4.0)+(macro-.5)*140.0); float crags=t*55.0*pow(r2,3.0); return valley+mountain+crags; }"""
+          s,n=re.subn(r'float terrain\(vec2 p\)\{[^\n]*\}',glsl,s,count=1)
+          if n!=1: raise SystemExit('GLSL terrain replacement failed')
+
+          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:210,z:0}, yaw=0,pitch=-.035, bob=", s, count=1)
 
           a=s.index('const skyP = program('); b=s.index('const terrainP = program(',a)
           sky=s[a:b]
-          clean='''void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.370,.398,.392), zenith=vec3(.145,.165,.170); vec3 col=mix(horizon,zenith,smoothstep(.02,.96,y)); vec2 q=vec2(uv.x*9.0+uLook.x*.70,uv.y*3.6+uTime*.0030); float c=.58*noise21(q*2.8+vec2(7,-3))+.42*noise21(q*6.2+vec2(-9,4)); float texture=(c-.5)*.055; float mask=smoothstep(.10,.35,y)*(1.0-smoothstep(.94,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.10)/.18,2.0)); col=mix(col,vec3(.400,.420,.412),mist*.14); float band=floor((1.0-y)*30.0)/30.0; col*=.970+.040*band; o=vec4(col,1); }'''
-          sky,n=re.subn(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',clean,sky,count=1)
-          if n!=1: raise SystemExit('Clean sky patch failed')
+          skybody="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.350,.382,.372), zenith=vec3(.125,.145,.155); vec3 col=mix(horizon,zenith,smoothstep(.02,.97,y)); vec2 q=vec2(uv.x*5.5+uLook.x*.45,uv.y*12.0+uLook.y*1.2+uTime*.0025); float c=.50*noise21(q*1.8+vec2(7,-3))+.32*noise21(q*3.7+vec2(-9,4))+.18*noise21(q*7.1+vec2(13,8)); float texture=(c-.5)*.035; float mask=smoothstep(.08,.28,y)*(1.0-smoothstep(.96,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.08)/.16,2.0)); col=mix(col,vec3(.390,.414,.402),mist*.16); float band=floor((1.0-y)*34.0)/34.0; col*=.976+.032*band; o=vec4(col,1); }"""
+          sky,n=re.subn(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',skybody,sky,count=1)
+          if n!=1: raise SystemExit('Sky replacement failed')
           s=s[:a]+sky+s[b:]
-          if 'texture=(c-.5)*.055' not in s: raise SystemExit('Clean overcast missing')
+
+          terrainbody="""void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.48,.76,.30)); float nd=.62+.38*max(dot(n,sun),0.0); float slope=1.0-n.y; float alt=smoothstep(1050.0,2050.0,vH); float rock=smoothstep(.18,.62,slope); float snow=smoothstep(1650.0,2250.0,vH)*mix(.18,1.0,smoothstep(.25,.78,n.y)); vec3 moss=vec3(.120,.180,.128), stone=vec3(.335,.345,.325), cold=vec3(.720,.740,.720); vec3 col=mix(moss,stone,max(rock*.82,alt*.48)); col=mix(col,cold,snow*.78); float micro=noise21(vWorld.xz*.035); float strata=noise21(vec2(vWorld.x*.010,vWorld.z*.0020)); col*=.92+.14*floor(micro*6.0)/5.0; col*=.94+.10*strata*rock; col*=nd; float fog=1.0-exp(-pow(vDist/2050.0,1.72)); float lowFog=(noise21(vWorld.xz*.0014+uTime*.0015)-.5)*.10; fog=clamp(fog+lowFog*smoothstep(240.0,1250.0,vDist),0.0,.975); vec3 fogCol=vec3(.330,.360,.348); col=mix(col,fogCol,fog); o=vec4(col,1); }"""
+          s,n=re.subn(r'void main\(\)\{ if\(dot\(vWorld-uCam,uForward\)<0\.5\) discard; vec3 n=normalize\(vNormal\);.*?o=vec4\(col,1\); \}',terrainbody,s,count=1)
+          if n!=1: raise SystemExit('Terrain material replacement failed')
+
+          s=s.replace('const cell=39, r=1180','const cell=34, r=1350',1)
+          s=s.replace('if(dd>r||dd<18)continue;','if(dd>r||dd<38)continue;',1)
+          s=s.replace('clamp(1-(h-1650)/360,0,1)','clamp(1-(h-1720)/300,0,1)',1)
+          s=s.replace('forest>.54 && localSlope<16','forest>.48 && localSlope<18',1)
+          s=s.replace('const s=(4.4+hash2(gx+7,gz+11)*5.2)*(.84+.16*alpine);','const s=(4.2+hash2(gx+7,gz+11)*3.8)*(.84+.16*alpine);',1)
+          s=s.replace("vec3 col=t.rgb*(.78+.20*vShade); float fog=1.0-exp(-pow(vDist/900.0,1.48)); col=mix(col,vec3(.355,.375,.365),clamp(fog,0.0,.98));","vec3 col=t.rgb*(.90+.16*vShade); float fog=1.0-exp(-pow(vDist/1150.0,1.55)); col=mix(col,vec3(.330,.360,.348),clamp(fog,0.0,.97));",1)
+          s=s.replace("c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.72); c*=1.06;","c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78); c*=1.12;",1)
+          s=s.replace("smoothstep(.40,.88,edge)*.19","smoothstep(.42,.90,edge)*.13",1)
+          s=s.replace('opacity:.27;','opacity:.22;',1)
+
+          required=['const center=550*Math.sin','float center=550.0*sin','let pos={x:210,z:0}, yaw=0','float nd=.62+.38','const cell=34, r=1350','texture=(c-.5)*.035']
+          missing=[q for q in required if q not in s]
+          if missing: raise SystemExit('Candidate patch incomplete: '+repr(missing))
           p.write_text(s)
           PY
 
@@ -54,7 +81,7 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture final iPhone views
+      - name: Capture iPhone valley stress views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
@@ -62,13 +89,14 @@ jobs:
           from pathlib import Path
           import json
           shots=[
-            ('spawn_peak',8500,-13000,3.40,-.025),
-            ('north',8500,-13000,0.0,-.025),
-            ('east',8500,-13000,1.57,-.025),
-            ('south',8500,-13000,3.14,-.025),
-            ('west',8500,-13000,4.71,-.025),
-            ('look_up',8500,-13000,3.40,.38),
-            ('look_down',8500,-13000,3.40,-.38),
+            ('spawn',210,0,0.0,-.035),
+            ('left_range',210,0,5.10,-.035),
+            ('right_range',210,0,1.18,-.035),
+            ('back_valley',210,0,3.14,-.035),
+            ('look_up',210,0,0.0,.38),
+            ('look_down',210,0,0.0,-.38),
+            ('four_km',420,4000,0.12,-.035),
+            ('side_walk',1150,1800,5.8,-.04),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           metrics=[]
@@ -88,22 +116,22 @@ jobs:
           Path('qa-metrics.json').write_text(json.dumps(metrics,indent=2))
           PY
 
-      - name: Upload final screenshot evidence
+      - name: Upload screenshot evidence
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-clean-overcast
+          name: alpine-visual-qa-true-scale-valley
           path: |
             qa-shots/*.png
             qa-metrics.json
           if-no-files-found: error
 
-      - name: Evaluate final guardrails
+      - name: Evaluate guardrails
         run: |
           python - <<'PY'
           import json
           m=json.load(open('qa-metrics.json'))
-          bad=[x for x in m if x['mean']<42 or x['black']>.10 or x['range']<55]
-          if bad: raise SystemExit('Final readability guardrail failed: '+repr(bad))
+          bad=[x for x in m if x['mean']<44 or x['black']>.08 or x['range']<58]
+          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           PY
 
       - name: Commit candidate to QA branch
@@ -114,7 +142,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: clean textured overcast"
+            git commit -m "QA: true-scale alpine valley and material refinement"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
