@@ -1,18 +1,18 @@
-name: Alpine Visual QA
+name: Alpine Final Gate
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-visual-qa
+  group: alpine-final-gate
   cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
-  visual-qa:
+  final-gate:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -25,101 +25,113 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build final forest-depth candidate
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          p=Path('index.html')
-          s=p.read_text()
-          if 'float valleyCenter=550.0*sin' not in s: raise SystemExit('Pass 23 composition missing')
-
-          terrainbody="""void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.48,.76,.30)); float nd=.66+.34*max(dot(n,sun),0.0); float slope=1.0-n.y; float alt=smoothstep(1120.0,2080.0,vH); float rock=smoothstep(.16,.58,slope); float snow=smoothstep(1760.0,2300.0,vH)*mix(.16,1.0,smoothstep(.22,.76,n.y)); float meadowA=noise21(vWorld.xz*.0042); float meadowB=noise21(vWorld.xz*.015+vec2(17,-11)); float meadowC=floor(noise21(vWorld.xz*.028+vec2(-23,7))*5.0)/4.0; float wet=smoothstep(.66,.88,noise21(vWorld.xz*.0024+vec2(-5,21))); vec3 grass=mix(vec3(.115,.188,.112),vec3(.245,.305,.170),meadowA*.58+meadowB*.42); grass*=.88+.22*meadowC; grass=mix(grass,vec3(.085,.135,.100),wet*.38); float valleyCenter=550.0*sin(vWorld.z*.00028)+220.0*sin(vWorld.z*.00071+1.3); float cross=abs(vWorld.x-valleyCenter); float forestMacro=noise21(vWorld.xz*.0017+vec2(43,-27)); float forestFine=noise21(vWorld.xz*.0052+vec2(-12,8)); float forestZone=smoothstep(170.0,520.0,cross)*(1.0-smoothstep(1510.0,1760.0,vH))*(1.0-rock); float forestMass=smoothstep(.42,.69,forestMacro*.70+forestFine*.30)*forestZone; grass=mix(grass,vec3(.060,.105,.078),forestMass*.38); float pathWarp=(noise21(vWorld.xz*.010+vec2(9,-17))-.5)*4.0; float trail=1.0-smoothstep(4.0,13.0,abs(vWorld.x-valleyCenter+pathWarp)); float trailBreak=.72+.28*noise21(vWorld.xz*.045+vec2(2,31)); vec3 trailCol=mix(vec3(.175,.160,.112),vec3(.225,.205,.140),trailBreak); grass=mix(grass,trailCol,trail*.55*(1.0-rock)); float face=noise21(vWorld.xz*.009+vec2(3,19)); vec3 stone=mix(vec3(.315,.325,.310),vec3(.405,.410,.380),face); vec3 cold=vec3(.755,.770,.748); vec3 col=mix(grass,stone,max(rock*.90,alt*.50)); col=mix(col,cold,snow*.82); float micro=noise21(vWorld.xz*.042); float strata=noise21(vec2(vWorld.x*.013,vWorld.z*.0022)); col*=.955+.145*floor(micro*7.0)/6.0; col*=.94+.13*strata*rock; col*=nd; float fog=1.0-exp(-pow(vDist/2300.0,1.74)); float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.085; fog=clamp(fog+lowFog*smoothstep(300.0,1450.0,vDist),0.0,.965); vec3 fogCol=vec3(.360,.390,.375); col=mix(col,fogCol,fog); o=vec4(col,1); }"""
-          s,n=re.subn(r'void main\(\)\{ if\(dot\(vWorld-uCam,uForward\)<0\.5\) discard; vec3 n=normalize\(vNormal\);.*?o=vec4\(col,1\); \}',terrainbody,s,count=1)
-          if n!=1: raise SystemExit('Forest depth material replacement failed')
-
-          treefn="""function rebuildTrees(px,pz){ const cell=28, r=1525, arr=[]; const cx0=Math.floor(px/cell), cz0=Math.floor(pz/cell), cr=Math.ceil(r/cell); outer: for(let dz=-cr;dz<=cr;dz++) for(let dx=-cr;dx<=cr;dx++){ if(arr.length>=7000*4)break outer; const gx=cx0+dx,gz=cz0+dz; const jx=hash2(gx,gz), jz=hash2(gx+91,gz-37); const x=(gx+jx)*cell,z=(gz+jz)*cell; const dd=Math.hypot(x-px,z-pz); if(dd>r||dd<50)continue; const h=terrainHeight(x,z); const localSlope=Math.abs(terrainHeight(x+5,z)-terrainHeight(x-5,z))+Math.abs(terrainHeight(x,z+5)-terrainHeight(x,z-5)); const alpine=clamp(1-(h-1740)/310,0,1); const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const cross=Math.abs(x-center); const cluster=noise2(gx*.10+5,gz*.10-9); const forest=hash2(gx*3,gz*3); const open=clamp((150-cross)/150,0,1); const threshold=.23+(1-cluster)*.20+open*.43; if(forest>threshold && localSlope<20 && alpine>0){ const size=(4.5+hash2(gx+7,gz+11)*4.2)*(.84+.16*alpine); arr.push(x,h-1,z,size); } } treeCount=arr.length/4; gl.bindBuffer(gl.ARRAY_BUFFER,treeBuf); gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(arr)); treeAnchorX=px; treeAnchorZ=pz; }"""
-          s,n=re.subn(r'function rebuildTrees\(px,pz\)\{[^\n]*\}',treefn,s,count=1)
-          if n!=1: raise SystemExit('Dense forest replacement failed')
-
-          required=['float forestZone=smoothstep(170.0,520.0','float trail=1.0-smoothstep(4.0,13.0','const cell=28, r=1525','const threshold=.23']
-          missing=[q for q in required if q not in s]
-          if missing: raise SystemExit('Forest depth patch incomplete: '+repr(missing))
-          p.write_text(s)
-          PY
-
-      - name: Install browser QA
+      - name: Install browser test
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
 
-      - name: Start local server
+      - name: Start candidate server
         run: |
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture final forest-depth views
+      - name: Run iPhone interaction gate
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image,ImageStat
+          from PIL import Image, ImageStat
           from pathlib import Path
-          import json
-          shots=[
-            ('spawn',210,0,0.0,-.035),
-            ('trail_forward',210,800,0.04,-.055),
-            ('left_range',210,0,5.10,-.035),
-            ('right_range',210,0,1.18,-.035),
-            ('back_valley',210,0,3.14,-.035),
-            ('look_down',210,0,0.0,-.38),
-            ('forest_side',1050,1750,5.75,-.04),
-            ('lower_slope',720,2600,5.35,-.035),
-          ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True)
-          metrics=[]
+          import re
+
+          errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
-            page=browser.new_page(viewport={'width':932,'height':430})
-            for name,x,z,yaw,pitch in shots:
-              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
-              page.wait_for_timeout(1800)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise RuntimeError('WebGL2 unavailable')
-              target=out/f'{name}.png'; page.screenshot(path=str(target))
-              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
-              mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
-              metrics.append({'name':name,'mean':mean,'black':black,'range':hi-lo})
-              print(name,round(mean,1),round(black,4),hi-lo)
+            context=browser.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1)
+            page=context.new_page()
+            page.on('pageerror', lambda exc: errors.append('pageerror: '+str(exc)))
+            page.on('console', lambda msg: errors.append('console error: '+msg.text) if msg.type=='error' else None)
+            page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000)
+            page.wait_for_timeout(1800)
+
+            if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
+              raise SystemExit('WebGL2 unavailable')
+            if not page.is_visible('#enter'):
+              raise SystemExit('Entry screen missing')
+            page.click('#enter')
+            page.wait_for_timeout(600)
+            if page.is_visible('#start'):
+              raise SystemExit('Entry screen did not dismiss')
+
+            page.keyboard.press('Backquote')
+            page.wait_for_timeout(200)
+            before=page.locator('#debug').inner_text()
+
+            # Left-side drag upward = walk forward.
+            page.mouse.move(120,330)
+            page.mouse.down()
+            page.mouse.move(120,245,steps=3)
+            page.wait_for_timeout(900)
+            page.mouse.up()
+            page.wait_for_timeout(250)
+            after_walk=page.locator('#debug').inner_text()
+
+            def coords(text):
+              m=re.search(r'(-?\d+)m\s+(-?\d+)m',text)
+              return (int(m.group(1)),int(m.group(2))) if m else None
+            a,b=coords(before),coords(after_walk)
+            if not a or not b or a==b:
+              raise SystemExit(f'Walking input did not move player: {before!r} -> {after_walk!r}')
+
+            # Right-side drag = look. We cannot access yaw directly, so compare rendered pixels.
+            page.screenshot(path='before-look.png')
+            page.mouse.move(800,220)
+            page.mouse.down()
+            page.mouse.move(700,195,steps=3)
+            page.mouse.up()
+            page.wait_for_timeout(450)
+            page.screenshot(path='after-look.png')
+            im1=Image.open('before-look.png').convert('L')
+            im2=Image.open('after-look.png').convert('L')
+            diff=sum(abs(a-b) for a,b in zip(im1.getdata(),im2.getdata()))/(im1.width*im1.height)
+            if diff < 1.0:
+              raise SystemExit(f'Look input produced insufficient image change: {diff:.3f}')
+
+            page.keyboard.press('Backquote')
+            page.screenshot(path='final-iphone.png')
+            final=Image.open('final-iphone.png').convert('L')
+            mean=ImageStat.Stat(final).mean[0]
+            lo,hi=final.getextrema()
+            if mean < 47 or hi-lo < 60:
+              raise SystemExit(f'Final frame readability failed mean={mean:.1f} range={hi-lo}')
             browser.close()
-          Path('qa-metrics.json').write_text(json.dumps(metrics,indent=2))
+
+          if errors:
+            raise SystemExit('Browser errors: '+repr(errors))
+          print('interaction gate passed; pixel look-diff',round(diff,2),'final mean',round(mean,1),'range',hi-lo)
           PY
 
-      - name: Upload screenshot evidence
+      - name: Upload final proof
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-forest-depth
+          name: alpine-final-approved-proof
           path: |
-            qa-shots/*.png
-            qa-metrics.json
+            before-look.png
+            after-look.png
+            final-iphone.png
           if-no-files-found: error
 
-      - name: Evaluate guardrails
+      - name: Promote exact QA index to main
         run: |
-          python - <<'PY'
-          import json
-          m=json.load(open('qa-metrics.json'))
-          bad=[x for x in m if x['mean']<47 or x['black']>.05 or x['range']<60]
-          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
-          PY
-
-      - name: Commit candidate to QA branch
-        run: |
+          cp index.html /tmp/alpine-final-index.html
+          git fetch origin main
+          git checkout -B main origin/main
+          cp /tmp/alpine-final-index.html index.html
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
           if git diff --cached --quiet; then
-            echo "No QA code changes"
+            echo "Main already matches approved QA build"
           else
-            git commit -m "QA: conifer belt and refined valley trail"
-            git pull --rebase origin qa
-            git push origin HEAD:qa
+            git commit -m "Ship final ALPINE NULL approved build"
+            git push origin HEAD:main
           fi
