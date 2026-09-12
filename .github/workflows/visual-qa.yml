@@ -16,7 +16,6 @@ jobs:
         with:
           ref: qa
           fetch-depth: 0
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -25,38 +24,20 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
-          p=Path('index.html')
-          s=p.read_text()
-
-          # Stable vertex normals: avoids screen-space derivative streaking/faceting in the foreground.
-          s=s.replace('out float vDist; out float vH; out vec3 vWorld; ${commonNoise}',
-                      'out float vDist; out float vH; out vec3 vWorld; out vec3 vNormal; ${commonNoise}',1)
-          s=s.replace('float h=terrain(world); vWorld=vec3(world.x,h,world.y); vDist=distance(world,uCam.xz); vH=h; gl_Position=uVP*vec4(vWorld,1);',
-                      'float h=terrain(world); float e=18.0; float hx=terrain(world+vec2(e,0.0))-h; float hz=terrain(world+vec2(0.0,e))-h; vNormal=normalize(vec3(-hx,e,-hz)); vWorld=vec3(world.x,h,world.y); vDist=distance(world,uCam.xz); vH=h; gl_Position=uVP*vec4(vWorld,1);',1)
-          s=s.replace('in float vDist; in float vH; in vec3 vWorld; out vec4 o;',
-                      'in float vDist; in float vH; in vec3 vWorld; in vec3 vNormal; out vec4 o;',1)
-          s=s.replace('vec3 dx=dFdx(vWorld), dy=dFdy(vWorld); vec3 n=normalize(cross(dx,dy)); if(n.y<0.0)n=-n;',
-                      'vec3 n=normalize(vNormal);',1)
-
-          # Overcast, not a black cave ceiling.
-          s=s.replace('vec3 zen=vec3(.085,.105,.104), hor=vec3(.345,.360,.344);',
-                      'vec3 zen=vec3(.115,.132,.130), hor=vec3(.385,.400,.388);',1)
-          s=s.replace('cloud=smoothstep(.45,.72,c)', 'cloud=smoothstep(.50,.80,c)',1)
-          s=s.replace('col=mix(col,vec3(.115,.132,.127),cloud*.62)',
-                      'col=mix(col,vec3(.190,.208,.202),cloud*.38)',1)
-
-          # Depth must be cleared each frame; otherwise old terrain/tree depth survives camera movement.
-          s=s.replace("gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,lowW,lowH);gl.disable(gl.DEPTH_TEST);",
-                      "gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,lowW,lowH);gl.clearDepth(1);gl.clear(gl.DEPTH_BUFFER_BIT);gl.disable(gl.DEPTH_TEST);",1)
-
-          # Slightly wider landscape composition.
-          s=s.replace('perspective(P,68*Math.PI/180,lowW/lowH,.35,5200)',
-                      'perspective(P,72*Math.PI/180,lowW/lowH,.35,5600)',1)
-
-          if "vNormal=normalize(vec3(-hx,e,-hz))" not in s: raise SystemExit('normal patch missing')
-          if "gl.clear(gl.DEPTH_BUFFER_BIT)" not in s: raise SystemExit('depth clear missing')
-          if "cloud=smoothstep(.50,.80,c)" not in s: raise SystemExit('sky patch missing')
+          p=Path('index.html'); s=p.read_text()
+          reps={
+            'vec3 zen=vec3(.115,.132,.130), hor=vec3(.385,.400,.388);':'vec3 zen=vec3(.165,.180,.176), hor=vec3(.430,.445,.433);',
+            'cloud=smoothstep(.50,.80,c)':'cloud=smoothstep(.52,.84,c)',
+            'col=mix(col,vec3(.190,.208,.202),cloud*.38)':'col=mix(col,vec3(.220,.235,.228),cloud*.22)',
+            'mix-blend-mode:multiply; opacity:.36;':'mix-blend-mode:multiply; opacity:.24;',
+            'c*=1.05;':'c*=1.08;',
+            '*2.0-1.0)*.012;':'*2.0-1.0)*.009;',
+            "uTime*17.0)-.5)*.018;":"uTime*17.0)-.5)*.012;",
+            'smoothstep(.38,.86,edge)*.20':'smoothstep(.40,.88,edge)*.16',
+          }
+          for a,b in reps.items():
+              if a not in s: raise SystemExit('Missing patch target: '+a)
+              s=s.replace(a,b,1)
           p.write_text(s)
           PY
 
@@ -64,28 +45,22 @@ jobs:
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
-
       - name: Start local server
         run: |
           python -m http.server 8000 > /tmp/alpine-server.log 2>&1 &
           sleep 2
-
       - name: Capture six gameplay views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image, ImageStat, ImageDraw
+          from PIL import Image, ImageStat
           from pathlib import Path
           shots=[
-            ('spawn_peak',0,0,5.323,-0.04),
-            ('spawn_southwest',0,0,3.58,-0.03),
-            ('open_valley',0,0,0.35,-0.02),
-            ('forest_edge',900,-350,5.0,-0.04),
-            ('high_pass',-1700,-2200,2.25,-0.08),
-            ('pitch_stress',0,0,5.323,0.42),
+            ('spawn_peak',0,0,5.323,-0.04),('spawn_southwest',0,0,3.58,-0.03),
+            ('open_valley',0,0,0.35,-0.02),('forest_edge',900,-350,5.0,-0.04),
+            ('high_pass',-1700,-2200,2.25,-0.08),('pitch_stress',0,0,5.323,0.42),
           ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True)
-          metrics=[]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
             page=browser.new_page(viewport={'width':1536,'height':709})
@@ -98,26 +73,22 @@ jobs:
               mean=st.mean[0]; dark=sum(hist[:18])/total; metrics.append((name,mean,dark,im.getextrema()))
               print(name,'mean_luma',round(mean,1),'near_black',round(dark,4),'range',im.getextrema())
             browser.close()
-          bad=[m for m in metrics if m[1] < 42 or m[2] > .25]
+          bad=[m for m in metrics if m[1] < 48 or m[1] > 95 or m[2] > .18]
           if bad: raise SystemExit('Visual readability guardrail failed: '+repr(bad))
           PY
-
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-pass3
+          name: alpine-visual-qa-pass4
           path: qa-shots/*.png
           if-no-files-found: error
-
       - name: Commit candidate to QA branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
-          if git diff --cached --quiet; then
-            echo "No QA code changes"
-          else
-            git commit -m "QA3: stable terrain normals, lighter overcast, depth clear"
+          if git diff --cached --quiet; then echo "No QA code changes"; else
+            git commit -m "QA4: lighter overcast and cleaner retro post"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
