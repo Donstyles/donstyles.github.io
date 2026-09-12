@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build true-scale alpine candidate
+      - name: Build readable alpine mood candidate
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -46,26 +46,29 @@ jobs:
 
           a=s.index('const skyP = program('); b=s.index('const terrainP = program(',a)
           sky=s[a:b]
-          skybody="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.350,.382,.372), zenith=vec3(.125,.145,.155); vec3 col=mix(horizon,zenith,smoothstep(.02,.97,y)); vec2 q=vec2(uv.x*5.5+uLook.x*.45,uv.y*12.0+uLook.y*1.2+uTime*.0025); float c=.50*noise21(q*1.8+vec2(7,-3))+.32*noise21(q*3.7+vec2(-9,4))+.18*noise21(q*7.1+vec2(13,8)); float texture=(c-.5)*.035; float mask=smoothstep(.08,.28,y)*(1.0-smoothstep(.96,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.08)/.16,2.0)); col=mix(col,vec3(.390,.414,.402),mist*.16); float band=floor((1.0-y)*34.0)/34.0; col*=.976+.032*band; o=vec4(col,1); }"""
+          skybody="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.385,.415,.405), zenith=vec3(.150,.170,.180); vec3 col=mix(horizon,zenith,smoothstep(.02,.97,y)); vec2 q=vec2(uv.x*5.8+uLook.x*.45,uv.y*13.5+uLook.y*1.15+uTime*.0023); float c=.50*noise21(q*1.9+vec2(7,-3))+.32*noise21(q*3.9+vec2(-9,4))+.18*noise21(q*7.5+vec2(13,8)); float texture=(c-.5)*.030; float mask=smoothstep(.08,.28,y)*(1.0-smoothstep(.96,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.075)/.15,2.0)); col=mix(col,vec3(.420,.442,.430),mist*.17); float band=floor((1.0-y)*36.0)/36.0; col*=.978+.030*band; o=vec4(col,1); }"""
           sky,n=re.subn(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',skybody,sky,count=1)
           if n!=1: raise SystemExit('Sky replacement failed')
           s=s[:a]+sky+s[b:]
 
-          terrainbody="""void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.48,.76,.30)); float nd=.62+.38*max(dot(n,sun),0.0); float slope=1.0-n.y; float alt=smoothstep(1050.0,2050.0,vH); float rock=smoothstep(.18,.62,slope); float snow=smoothstep(1650.0,2250.0,vH)*mix(.18,1.0,smoothstep(.25,.78,n.y)); vec3 moss=vec3(.120,.180,.128), stone=vec3(.335,.345,.325), cold=vec3(.720,.740,.720); vec3 col=mix(moss,stone,max(rock*.82,alt*.48)); col=mix(col,cold,snow*.78); float micro=noise21(vWorld.xz*.035); float strata=noise21(vec2(vWorld.x*.010,vWorld.z*.0020)); col*=.92+.14*floor(micro*6.0)/5.0; col*=.94+.10*strata*rock; col*=nd; float fog=1.0-exp(-pow(vDist/2050.0,1.72)); float lowFog=(noise21(vWorld.xz*.0014+uTime*.0015)-.5)*.10; fog=clamp(fog+lowFog*smoothstep(240.0,1250.0,vDist),0.0,.975); vec3 fogCol=vec3(.330,.360,.348); col=mix(col,fogCol,fog); o=vec4(col,1); }"""
+          terrainbody="""void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.48,.76,.30)); float nd=.68+.32*max(dot(n,sun),0.0); float slope=1.0-n.y; float alt=smoothstep(1050.0,2050.0,vH); float rock=smoothstep(.18,.62,slope); float snow=smoothstep(1650.0,2250.0,vH)*mix(.18,1.0,smoothstep(.25,.78,n.y)); float meadow=noise21(vWorld.xz*.0060); vec3 moss=mix(vec3(.125,.185,.125),vec3(.205,.245,.165),meadow); vec3 stone=vec3(.355,.365,.345), cold=vec3(.745,.765,.745); vec3 col=mix(moss,stone,max(rock*.82,alt*.48)); col=mix(col,cold,snow*.78); float micro=noise21(vWorld.xz*.035); float strata=noise21(vec2(vWorld.x*.010,vWorld.z*.0020)); col*=.96+.13*floor(micro*6.0)/5.0; col*=.96+.09*strata*rock; col*=nd; float fog=1.0-exp(-pow(vDist/2250.0,1.72)); float lowFog=(noise21(vWorld.xz*.0014+uTime*.0015)-.5)*.085; fog=clamp(fog+lowFog*smoothstep(280.0,1350.0,vDist),0.0,.965); vec3 fogCol=vec3(.350,.382,.368); col=mix(col,fogCol,fog); o=vec4(col,1); }"""
           s,n=re.subn(r'void main\(\)\{ if\(dot\(vWorld-uCam,uForward\)<0\.5\) discard; vec3 n=normalize\(vNormal\);.*?o=vec4\(col,1\); \}',terrainbody,s,count=1)
           if n!=1: raise SystemExit('Terrain material replacement failed')
 
-          s=s.replace('const cell=39, r=1180','const cell=34, r=1350',1)
-          s=s.replace('if(dd>r||dd<18)continue;','if(dd>r||dd<38)continue;',1)
+          s=re.sub(r'const cell=\d+, r=\d+', 'const cell=33, r=1400', s, count=1)
+          s=s.replace('if(dd>r||dd<18)continue;','if(dd>r||dd<42)continue;',1)
           s=s.replace('clamp(1-(h-1650)/360,0,1)','clamp(1-(h-1720)/300,0,1)',1)
-          s=s.replace('forest>.54 && localSlope<16','forest>.48 && localSlope<18',1)
-          s=s.replace('const s=(4.4+hash2(gx+7,gz+11)*5.2)*(.84+.16*alpine);','const s=(4.2+hash2(gx+7,gz+11)*3.8)*(.84+.16*alpine);',1)
-          s=s.replace("vec3 col=t.rgb*(.78+.20*vShade); float fog=1.0-exp(-pow(vDist/900.0,1.48)); col=mix(col,vec3(.355,.375,.365),clamp(fog,0.0,.98));","vec3 col=t.rgb*(.90+.16*vShade); float fog=1.0-exp(-pow(vDist/1150.0,1.55)); col=mix(col,vec3(.330,.360,.348),clamp(fog,0.0,.97));",1)
-          s=s.replace("c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.72); c*=1.06;","c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.78); c*=1.12;",1)
-          s=s.replace("smoothstep(.40,.88,edge)*.19","smoothstep(.42,.90,edge)*.13",1)
-          s=s.replace('opacity:.27;','opacity:.22;',1)
+          s=re.sub(r'forest>\.\d+ && localSlope<\d+', 'forest>.46 && localSlope<18', s, count=1)
+          s=re.sub(r'const s=\([^;]+?\)\*\(\.84\+\.16\*alpine\);', 'const s=(4.2+hash2(gx+7,gz+11)*3.8)*(.84+.16*alpine);', s, count=1)
 
-          required=['const center=550*Math.sin','float center=550.0*sin','let pos={x:210,z:0}, yaw=0','float nd=.62+.38','const cell=34, r=1350','texture=(c-.5)*.035']
+          s,n=re.subn(r"vec3 col=t\.rgb\*\([^;]+\); float fog=1\.0-exp\(-pow\(vDist/[^;]+; col=mix\(col,vec3\([^;]+;", "vec3 col=t.rgb*(.96+.14*vShade); float fog=1.0-exp(-pow(vDist/1300.0,1.55)); col=mix(col,vec3(.350,.382,.368),clamp(fog,0.0,.965));", s, count=1)
+          if n!=1: raise SystemExit('Tree material replacement failed')
+
+          s=re.sub(r"c=mix\(vec3\(dot\(c,vec3\(\.299,\.587,\.114\)\)\),c,\.\d+\); c\*=\d+\.\d+;", "c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.82); c*=1.17;", s, count=1)
+          s=re.sub(r"smoothstep\(\.\d+,\.\d+,edge\)\*\.\d+", "smoothstep(.43,.91,edge)*.105", s, count=1)
+          s=re.sub(r'opacity:\.\d+;', 'opacity:.17;', s, count=1)
+
+          required=['const center=550*Math.sin','float center=550.0*sin','let pos={x:210,z:0}, yaw=0','float meadow=noise21','const cell=33, r=1400','c*=1.17','opacity:.17']
           missing=[q for q in required if q not in s]
           if missing: raise SystemExit('Candidate patch incomplete: '+repr(missing))
           p.write_text(s)
@@ -81,7 +84,7 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture iPhone valley stress views
+      - name: Capture iPhone mood views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
@@ -119,7 +122,7 @@ jobs:
       - name: Upload screenshot evidence
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-true-scale-valley
+          name: alpine-visual-qa-readable-mood
           path: |
             qa-shots/*.png
             qa-metrics.json
@@ -130,7 +133,7 @@ jobs:
           python - <<'PY'
           import json
           m=json.load(open('qa-metrics.json'))
-          bad=[x for x in m if x['mean']<44 or x['black']>.08 or x['range']<58]
+          bad=[x for x in m if x['mean']<48 or x['black']>.06 or x['range']<62]
           if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           PY
 
@@ -142,7 +145,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: true-scale alpine valley and material refinement"
+            git commit -m "QA: readable alpine mood and valley materials"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
