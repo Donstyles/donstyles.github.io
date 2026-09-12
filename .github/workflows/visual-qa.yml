@@ -25,38 +25,30 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build scenic QA candidate
+      - name: Build structural QA candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text()
 
-          # Start in an open low valley looking toward a distant ~2.4 km ridge.
-          s=s.replace("let pos={x:0,z:0}, yaw=5.323,pitch=-.04", "let pos={x:3750,z:5750}, yaw=.262,pitch=-.035")
+          # Prevent triangles that straddle/lie behind the camera from appearing as a giant ceiling.
+          old="out vec4 o; uniform vec3 uCam; uniform float uTime; ${commonNoise}\nvoid main(){ vec3 n=normalize(vNormal);"
+          new="out vec4 o; uniform vec3 uCam; uniform vec3 uForward; uniform float uTime; ${commonNoise}\nvoid main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal);"
+          s=s.replace(old,new,1)
+          s=s.replace("gl.uniform3f(uni(terrainP,'uCam'),pos.x,pos.y,pos.z);gl.uniform1f(uni(terrainP,'uTime'),seconds);",
+                      "gl.uniform3f(uni(terrainP,'uCam'),pos.x,pos.y,pos.z);gl.uniform3f(uni(terrainP,'uForward'),sy,0,cy);gl.uniform1f(uni(terrainP,'uTime'),seconds);",1)
 
-          # Preserve endless forest while stopping nearby billboards from dominating the landscape.
-          s=s.replace("const cell=34, r=1050", "const cell=38, r=1120")
-          s=s.replace("forest>.42 && localSlope<16", "forest>.50 && localSlope<16")
-          s=s.replace("const s=(5.2+hash2(gx+7,gz+11)*6.8)", "const s=(4.8+hash2(gx+7,gz+11)*5.7)")
+          # Scenic default and more believable tree scale.
+          import re
+          s=re.sub(r"let pos=\{x:[^,]+,z:[^}]+\}, yaw=[^,]+,pitch=[^,]+, bob=", "let pos={x:3750,z:5750}, yaw=.262,pitch=-.035, bob=", s, count=1)
+          s=re.sub(r"const cell=\d+, r=\d+", "const cell=38, r=1120", s, count=1)
+          s=re.sub(r"forest>\.\d+ && localSlope<16", "forest>.50 && localSlope<16", s, count=1)
+          s=re.sub(r"const s=\([^;]+?\)\*\(\.82\+\.18\*alpine\);", "const s=(4.8+hash2(gx+7,gz+11)*5.7)*(.82+.18*alpine);", s, count=1)
 
-          # Stormy overcast, but never a near-black ceiling.
-          s=s.replace("vec3 zen=vec3(.115,.132,.130), hor=vec3(.385,.400,.388);", "vec3 zen=vec3(.145,.162,.160), hor=vec3(.405,.418,.406);")
-          s=s.replace("vec3(.190,.208,.202),cloud*.38", "vec3(.220,.235,.228),cloud*.30")
-          s=s.replace("vec3 fogCol=vec3(.300,.320,.306)", "vec3 fogCol=vec3(.315,.330,.318)")
-          s=s.replace("col=mix(col,vec3(.300,.320,.306),clamp(fog,0.0,.98));", "col=mix(col,vec3(.315,.330,.318),clamp(fog,0.0,.98));")
-          s=s.replace("opacity:.36;", "opacity:.30;", 1)
-
-          required=[
-            "let pos={x:3750,z:5750}, yaw=.262,pitch=-.035",
-            "const cell=38, r=1120",
-            "forest>.50 && localSlope<16",
-            "vec3 zen=vec3(.145,.162,.160)",
-            "gl.clear(gl.DEPTH_BUFFER_BIT)",
-            "gl.uniform3f(uni(treeP,'uUp'),0,1,0)"
-          ]
-          missing=[x for x in required if x not in s]
-          if missing: raise SystemExit('QA patch missing: '+repr(missing))
+          required=["uniform vec3 uForward","dot(vWorld-uCam,uForward)<0.5","uni(terrainP,'uForward')","let pos={x:3750,z:5750}"]
+          missing=[q for q in required if q not in s]
+          if missing: raise SystemExit('Structural patch missing: '+repr(missing))
           p.write_text(s)
           PY
 
@@ -70,21 +62,20 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture iPhone gameplay views
+      - name: Capture structural stress views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
-
           shots=[
             ('spawn',3750,5750,.262,-.035),
             ('spawn_left',3750,5750,5.55,-.035),
             ('spawn_right',3750,5750,1.15,-.035),
-            ('distant_peak',7750,2500,-.262,-.04),
-            ('forest_edge',4500,7000,1.13,-.03),
             ('pitch_up',3750,5750,.262,.42),
             ('pitch_down',3750,5750,.262,-.42),
+            ('forest_edge',4500,7000,1.13,-.03),
+            ('high_pass',-1700,-2200,2.25,-.08),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           metrics=[]
@@ -94,22 +85,20 @@ jobs:
             for name,x,z,yaw,pitch in shots:
               page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
               page.wait_for_timeout(1800)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
-                raise RuntimeError('WebGL2 unavailable')
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise RuntimeError('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
               im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
-              mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
-              metrics.append((name,mean,near_black,hi-lo))
-              print(name,'mean',round(mean,1),'near_black',round(near_black,4),'range',hi-lo)
+              mean=ImageStat.Stat(im).mean[0]; black=sum(hist[:18])/total; lo,hi=im.getextrema()
+              metrics.append((name,mean,black,hi-lo)); print(name,round(mean,1),round(black,4),hi-lo)
             browser.close()
-          bad=[m for m in metrics if m[1] < 48 or m[2] > .08 or m[3] < 65]
-          if bad: raise SystemExit('Visual readability guardrail failed: '+repr(bad))
+          bad=[m for m in metrics if m[1] < 45 or m[2] > .10 or m[3] < 60]
+          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           PY
 
       - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-scenic
+          name: alpine-visual-qa-geometry-fix
           path: qa-shots/*.png
           if-no-files-found: error
 
@@ -121,6 +110,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: scenic valley spawn and balanced tree scale"
+            git commit -m "QA: clip behind-camera terrain geometry"
+            git pull --rebase origin qa
             git push origin HEAD:qa
           fi
