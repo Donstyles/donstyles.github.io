@@ -1,11 +1,11 @@
-name: Alpine Ridge Scale Review
+name: Alpine Distant Summit Review
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-ridge-scale-review
+  group: alpine-distant-summit-review
   cancel-in-progress: true
 
 permissions:
@@ -25,23 +25,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build taller craggy ridge candidate
+      - name: Build distant summit candidate
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html'); s=p.read_text()
-          js="""function terrainHeight(x,z){ const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const signed=x-center, cross=Math.abs(signed); let t=clamp((cross-850)/2750,0,1); t=t*t*(3-2*t); const floorT=clamp(cross/1150,0,1); const macro=noise2(x*.00016+11,z*.00016-7); const r0=1-Math.abs(noise2(x*.00042-13,z*.00042+9)*2-1); const r1=1-Math.abs(noise2(x*.00092+17,z*.00092-23)*2-1); const r2=1-Math.abs(noise2(x*.00165+29,z*.00165+5)*2-1); const r3=1-Math.abs(noise2(x*.00310-37,z*.00310+41)*2-1); const shoulder=noise2(x*.0017+3,z*.0017-19); const detail=noise2(x*.0056-31,z*.0056+5); const valley=605+70*Math.pow(floorT,1.8)+(macro-.5)*92+(shoulder-.5)*32+(detail-.5)*11+14*Math.sin(z*.00058); const mountain=t*(930+650*Math.pow(r0,2.0)+360*Math.pow(r1,3.0)+220*Math.pow(r2,4.0)+(macro-.5)*145); const crags=t*(165*Math.pow(r2,3.0)+115*Math.pow(r3,5.0)); const phase=signed>=0?1.2:-1.2; const peakTrain=t*Math.pow(Math.max(0,Math.sin(z*.00105+phase)),4)*220; return valley+mountain+crags+peakTrain; }"""
+          js="""function terrainHeight(x,z){ const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const signed=x-center, cross=Math.abs(signed); let t=clamp((cross-850)/2750,0,1); t=t*t*(3-2*t); const floorT=clamp(cross/1150,0,1); const macro=noise2(x*.00016+11,z*.00016-7); const r0=1-Math.abs(noise2(x*.00042-13,z*.00042+9)*2-1); const r1=1-Math.abs(noise2(x*.00092+17,z*.00092-23)*2-1); const r2=1-Math.abs(noise2(x*.00165+29,z*.00165+5)*2-1); const r3=1-Math.abs(noise2(x*.00310-37,z*.00310+41)*2-1); const shoulder=noise2(x*.0017+3,z*.0017-19); const detail=noise2(x*.0056-31,z*.0056+5); const valley=605+70*Math.pow(floorT,1.8)+(macro-.5)*92+(shoulder-.5)*32+(detail-.5)*11+14*Math.sin(z*.00058); const mountain=t*(810+525*Math.pow(r0,2.0)+285*Math.pow(r1,3.0)+165*Math.pow(r2,4.0)+(macro-.5)*125); const crags=t*(92*Math.pow(r2,3.0)+68*Math.pow(r3,5.0)); const band=Math.exp(-Math.pow((cross-3250)/900,2)); const phase=signed>=0?1.15:-1.35; const p0=Math.pow(Math.max(0,Math.sin(z*.00082+phase)),6); const p1=Math.pow(Math.max(0,Math.sin(z*.00163-phase*.7)),10); const summit=band*(260+610*p0+310*p1+190*Math.pow(r2,4)); return valley+mountain+crags+summit; }"""
           s,n=re.subn(r"function terrainHeight\(x,z\)\{[^\n]*\}",js,s,count=1)
           if n!=1: raise SystemExit('JS terrain patch failed')
-          glsl="""float terrain(vec2 p){ float center=550.0*sin(p.y*.00028)+220.0*sin(p.y*.00071+1.3); float signedv=p.x-center, cross=abs(signedv); float t=clamp((cross-850.0)/2750.0,0.0,1.0); t=t*t*(3.0-2.0*t); float floorT=clamp(cross/1150.0,0.0,1.0); float macro=noise21(p*.00016+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00042+vec2(-13,9))*2.0-1.0); float r1=1.0-abs(noise21(p*.00092+vec2(17,-23))*2.0-1.0); float r2=1.0-abs(noise21(p*.00165+vec2(29,5))*2.0-1.0); float r3=1.0-abs(noise21(p*.00310+vec2(-37,41))*2.0-1.0); float shoulder=noise21(p*.0017+vec2(3,-19)); float detail=noise21(p*.0056+vec2(-31,5)); float valley=605.0+70.0*pow(floorT,1.8)+(macro-.5)*92.0+(shoulder-.5)*32.0+(detail-.5)*11.0+14.0*sin(p.y*.00058); float mountain=t*(930.0+650.0*pow(r0,2.0)+360.0*pow(r1,3.0)+220.0*pow(r2,4.0)+(macro-.5)*145.0); float crags=t*(165.0*pow(r2,3.0)+115.0*pow(r3,5.0)); float phase=signedv>=0.0?1.2:-1.2; float peakTrain=t*pow(max(0.0,sin(p.y*.00105+phase)),4.0)*220.0; return valley+mountain+crags+peakTrain; }"""
+          glsl="""float terrain(vec2 p){ float center=550.0*sin(p.y*.00028)+220.0*sin(p.y*.00071+1.3); float signedv=p.x-center, cross=abs(signedv); float t=clamp((cross-850.0)/2750.0,0.0,1.0); t=t*t*(3.0-2.0*t); float floorT=clamp(cross/1150.0,0.0,1.0); float macro=noise21(p*.00016+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00042+vec2(-13,9))*2.0-1.0); float r1=1.0-abs(noise21(p*.00092+vec2(17,-23))*2.0-1.0); float r2=1.0-abs(noise21(p*.00165+vec2(29,5))*2.0-1.0); float r3=1.0-abs(noise21(p*.00310+vec2(-37,41))*2.0-1.0); float shoulder=noise21(p*.0017+vec2(3,-19)); float detail=noise21(p*.0056+vec2(-31,5)); float valley=605.0+70.0*pow(floorT,1.8)+(macro-.5)*92.0+(shoulder-.5)*32.0+(detail-.5)*11.0+14.0*sin(p.y*.00058); float mountain=t*(810.0+525.0*pow(r0,2.0)+285.0*pow(r1,3.0)+165.0*pow(r2,4.0)+(macro-.5)*125.0); float crags=t*(92.0*pow(r2,3.0)+68.0*pow(r3,5.0)); float band=exp(-pow((cross-3250.0)/900.0,2.0)); float phase=signedv>=0.0?1.15:-1.35; float p0=pow(max(0.0,sin(p.y*.00082+phase)),6.0); float p1=pow(max(0.0,sin(p.y*.00163-phase*.7)),10.0); float summit=band*(260.0+610.0*p0+310.0*p1+190.0*pow(r2,4.0)); return valley+mountain+crags+summit; }"""
           s,n=re.subn(r"float terrain\(vec2 p\)\{[^\n]*\}",glsl,s,count=1)
           if n!=1: raise SystemExit('GLSL terrain patch failed')
-          s=s.replace('float alt=smoothstep(1120.0,2080.0,vH);','float alt=smoothstep(1280.0,2250.0,vH);')
-          s=s.replace('float snowBase=smoothstep(1600.0,2130.0,vH)*mix(.18,1.0,smoothstep(.18,.72,n.y));','float snowBase=smoothstep(1880.0,2440.0,vH)*mix(.16,1.0,smoothstep(.16,.72,n.y));')
-          required=['peakTrain','930.0+650.0','smoothstep(1880.0,2440.0','smoothstep(1280.0,2250.0']
+          s=s.replace('float alt=smoothstep(1120.0,2080.0,vH);','float alt=smoothstep(1260.0,2200.0,vH);')
+          s=s.replace('float snowBase=smoothstep(1600.0,2130.0,vH)*mix(.18,1.0,smoothstep(.18,.72,n.y));','float snowBase=smoothstep(1830.0,2380.0,vH)*mix(.15,1.0,smoothstep(.16,.72,n.y));')
+          required=['cross-3250','610.0*p0','310.0*p1','smoothstep(1830.0,2380.0']
           missing=[q for q in required if q not in s]
-          if missing: raise SystemExit('ridge candidate incomplete: '+repr(missing))
+          if missing: raise SystemExit('distant summit candidate incomplete: '+repr(missing))
           p.write_text(s)
           PY
 
@@ -55,7 +55,7 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture ridge scale views
+      - name: Capture distant summit views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
@@ -64,7 +64,7 @@ jobs:
           import json
           shots=[
             ('spawn',None,None,.28,.28),('left',None,None,-1.29,.28),('right',None,None,1.85,.28),('up',None,None,.28,.48),
-            ('valley0',212,0,.18,.28),('valley2000',382,2000,.12,.28),('valley4000',310,4000,.08,.28),('back',None,None,3.42,.28)
+            ('z0',212,0,.18,.30),('z2000',382,2000,.12,.30),('z4000',310,4000,.08,.30),('z6000',50,6000,.02,.30),
           ]
           out=Path('qa-shots');out.mkdir(exist_ok=True);metrics=[];errors=[]
           with sync_playwright() as p:
@@ -83,10 +83,10 @@ jobs:
           if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
 
-      - name: Upload ridge review
+      - name: Upload summit review
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-ridge-scale-review
+          name: alpine-distant-summit-review
           path: qa-shots/*
           if-no-files-found: error
