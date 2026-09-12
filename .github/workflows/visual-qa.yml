@@ -1,14 +1,18 @@
-name: Alpine Visual QA
+name: Alpine Review Gate
 
 on:
   push:
-    branches: [qa]
+    branches: [main, qa]
+
+concurrency:
+  group: alpine-review-gate
+  cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  visual-qa:
+  review:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -16,70 +20,83 @@ jobs:
         with:
           ref: qa
           fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Build QA candidate
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('index.html'); s=p.read_text()
-          old="vec2 q=vec2(uv.x*3.0+uLook.x*.12, uv.y*.7+uTime*.0014); float c=noise21(q*3.7)+.55*noise21(q*8.3+8.0)+.28*noise21(q*16.0-4.0); c/=1.83; float cloud=smoothstep(.52,.84,c)*(1.0-smoothstep(.58,1.0,y)); col=mix(col,vec3(.220,.235,.228),cloud*.22);"
-          new="vec2 q=vec2(uv.x*3.0+uLook.x*.12, uv.y*.7+uTime*.0014); float c=noise21(q*3.7)+.55*noise21(q*8.3+8.0)+.28*noise21(q*16.0-4.0); c/=1.83; float cloud=(c-.5)*(1.0-smoothstep(.70,1.0,y)); col*=.965+cloud*.12;"
-          if old not in s: raise SystemExit('Sky block not found')
-          s=s.replace(old,new,1)
-          p.write_text(s)
-          PY
-
-      - name: Install Playwright
+      - name: Install browser QA
         run: |
           pip install playwright pillow
           python -m playwright install --with-deps chromium
-      - name: Start local server
+
+      - name: Start candidate server
         run: |
-          python -m http.server 8000 > /tmp/alpine-server.log 2>&1 &
+          python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
-      - name: Capture six gameplay views
+
+      - name: Capture iPhone review set
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
           from PIL import Image, ImageStat
           from pathlib import Path
+          import re
+
           shots=[
-            ('spawn_peak',0,0,5.323,-0.04),('spawn_southwest',0,0,3.58,-0.03),
-            ('open_valley',0,0,0.35,-0.02),('forest_edge',900,-350,5.0,-0.04),
-            ('high_pass',-1700,-2200,2.25,-0.08),('pitch_stress',0,0,5.323,0.42),
+            ('spawn',None,None,None,None),
+            ('left',None,None,5.55,-.035),
+            ('right',None,None,1.15,-.035),
+            ('look_up',None,None,.262,.42),
+            ('look_down',None,None,.262,-.42),
+            ('forest_edge',4500,7000,1.13,-.03),
+            ('high_pass',-1700,-2200,2.25,-.08),
           ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True)
+          metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
-            page=browser.new_page(viewport={'width':1536,'height':709})
+            context=browser.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1)
+            page=context.new_page()
+            page.on('pageerror', lambda exc: errors.append('pageerror: '+str(exc)))
+            page.on('console', lambda msg: errors.append('console error: '+msg.text) if msg.type=='error' else None)
             for name,x,z,yaw,pitch in shots:
-              page.goto(f'http://127.0.0.1:8000/index.html?qa=1&x={x}&z={z}&yaw={yaw}&pitch={pitch}',wait_until='load',timeout=30000)
-              page.wait_for_timeout(1800)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"): raise RuntimeError('WebGL2 unavailable')
+              qs=['qa=1']
+              if x is not None: qs.append(f'x={x}')
+              if z is not None: qs.append(f'z={z}')
+              if yaw is not None: qs.append(f'yaw={yaw}')
+              if pitch is not None: qs.append(f'pitch={pitch}')
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000)
+              page.wait_for_timeout(1600)
+              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
+                raise SystemExit('WebGL2 unavailable')
               target=out/f'{name}.png'; page.screenshot(path=str(target))
-              im=Image.open(target).convert('L'); st=ImageStat.Stat(im); hist=im.histogram(); total=sum(hist)
-              mean=st.mean[0]; dark=sum(hist[:18])/total; metrics.append((name,mean,dark,im.getextrema()))
-              print(name,'mean_luma',round(mean,1),'near_black',round(dark,4),'range',im.getextrema())
+              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
+              mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
+              metrics.append((name,mean,near_black,hi-lo))
+              print(name,'mean',round(mean,1),'near_black',round(near_black,4),'range',hi-lo)
+
+            page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000)
+            page.wait_for_timeout(1000)
+            if not page.is_visible('#enter'): raise SystemExit('Entry screen missing')
+            page.click('#enter'); page.wait_for_timeout(400)
+            page.keyboard.press('Backquote'); page.wait_for_timeout(150)
+            before=page.locator('#debug').inner_text()
+            page.mouse.move(120,330); page.mouse.down(); page.mouse.move(120,245,steps=3); page.wait_for_timeout(800); page.mouse.up(); page.wait_for_timeout(200)
+            after=page.locator('#debug').inner_text()
+            def coords(text):
+              m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
+            if not coords(before) or coords(before)==coords(after): raise SystemExit('Walking input failed')
             browser.close()
-          bad=[m for m in metrics if m[1] < 48 or m[1] > 100 or m[2] > .18]
-          if bad: raise SystemExit('Visual readability guardrail failed: '+repr(bad))
+
+          bad=[m for m in metrics if m[1] < 45 or m[2] > .12 or m[3] < 60]
+          if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
+          if errors: raise SystemExit('Browser errors: '+repr(errors))
           PY
-      - name: Upload screenshot artifact
+
+      - name: Upload review screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-pass5
+          name: alpine-review-shots
           path: qa-shots/*.png
           if-no-files-found: error
-      - name: Commit candidate to QA branch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          if git diff --cached --quiet; then echo "No QA code changes"; else
-            git commit -m "QA5: continuous overcast sky without hard cloud edge"
-            git pull --rebase origin qa
-            git push origin HEAD:qa
-          fi
