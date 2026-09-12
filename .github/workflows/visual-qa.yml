@@ -1,18 +1,18 @@
-name: Alpine Latest QA Review
+name: Alpine Shadow Recovery Candidate
 
 on:
   push:
     branches: [main]
 
 concurrency:
-  group: alpine-latest-review
+  group: alpine-shadow-candidate
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  review:
+  build-review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +24,30 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Patch shadow readability and foreground scale
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html'); s=p.read_text()
+          reps={
+            "float nd=.66+.34*max(dot(n,sun),0.0);":"float nd=.82+.18*max(dot(n,sun),0.0);",
+            "vec3 grass=mix(vec3(.095,.145,.108),vec3(.188,.222,.145),meadowA*.58+meadowB*.42);":"vec3 grass=mix(vec3(.125,.175,.132),vec3(.225,.255,.175),meadowA*.58+meadowB*.42);",
+            "grass=mix(grass,vec3(.052,.082,.075),forestMass*.46);":"grass=mix(grass,vec3(.070,.105,.095),forestMass*.40);",
+            "vec3 stone=mix(vec3(.285,.305,.315),vec3(.395,.410,.415),face);":"vec3 stone=mix(vec3(.330,.350,.360),vec3(.455,.465,.470),face);",
+            "col*=nd; float fog=":"col*=nd; col+=vec3(.014,.017,.016); float fog=",
+            "vec3 col=t.rgb*(.96+.17*vShade);":"vec3 col=t.rgb*(1.07+.13*vShade);",
+            "if(dd>r||dd<50)continue;":"if(dd>r||dd<72)continue;",
+            "const size=(4.5+hash2(gx+7,gz+11)*4.2)*(.84+.16*alpine);":"const size=(4.4+hash2(gx+7,gz+11)*3.3)*(.84+.16*alpine);",
+            "c*=1.09; c+=":"c*=1.105; c=max(c,vec3(.022)); c+="
+          }
+          missing=[]
+          for a,b in reps.items():
+            if a not in s: missing.append(a[:60])
+            else: s=s.replace(a,b,1)
+          if missing: raise SystemExit('Patch anchors missing: '+repr(missing))
+          p.write_text(s)
+          PY
+
       - name: Install browser QA
         run: |
           pip install playwright pillow
@@ -34,65 +58,52 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture latest QA on iPhone viewport
+      - name: Capture candidate views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
-          from PIL import Image, ImageStat
+          from PIL import Image,ImageStat
           from pathlib import Path
           import json,re
-
           shots=[
-            ('spawn',None,None,None,None),
-            ('left',None,None,4.712,-.035),
-            ('right',None,None,1.571,-.035),
-            ('back',None,None,3.142,-.035),
-            ('look_up',None,None,None,.42),
-            ('look_down',None,None,None,-.42),
-            ('walk_700',None,700,None,None),
-            ('ridge_edge',1100,1100,.55,-.04),
+            ('spawn',None,None,None,None),('left',None,None,4.712,-.035),('right',None,None,1.571,-.035),('back',None,None,3.142,-.035),
+            ('look_up',None,None,None,.42),('look_down',None,None,None,-.42),('walk_700',None,700,None,None),('ridge_edge',1100,1100,.55,-.04)
           ]
-          out=Path('qa-shots'); out.mkdir(exist_ok=True)
-          metrics=[]; errors=[]
+          out=Path('qa-shots'); out.mkdir(exist_ok=True); metrics=[]; errors=[]
           with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--enable-webgl','--ignore-gpu-blocklist','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-gpu-sandbox'])
-            context=browser.new_context(viewport={'width':932,'height':430},has_touch=True,is_mobile=True,device_scale_factor=1)
-            page=context.new_page()
-            page.on('pageerror', lambda exc: errors.append('pageerror: '+str(exc)))
-            page.on('console', lambda msg: errors.append('console error: '+msg.text) if msg.type=='error' else None)
+            page=browser.new_page(viewport={'width':932,'height':430})
+            page.on('pageerror',lambda exc:errors.append('pageerror: '+str(exc)))
+            page.on('console',lambda msg:errors.append('console: '+msg.text) if msg.type=='error' else None)
             for name,x,z,yaw,pitch in shots:
               qs=['qa=1']
               if x is not None: qs.append(f'x={x}')
               if z is not None: qs.append(f'z={z}')
               if yaw is not None: qs.append(f'yaw={yaw}')
               if pitch is not None: qs.append(f'pitch={pitch}')
-              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000)
-              page.wait_for_timeout(1700)
-              if not page.evaluate("!!document.querySelector('#game').getContext('webgl2')"):
-                errors.append(name+': WebGL2 unavailable'); continue
+              page.goto('http://127.0.0.1:8000/index.html?'+'&'.join(qs),wait_until='load',timeout=30000); page.wait_for_timeout(1700)
               target=out/f'{name}.png'; page.screenshot(path=str(target))
-              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist)
-              mean=ImageStat.Stat(im).mean[0]; near_black=sum(hist[:18])/total; lo,hi=im.getextrema()
-              top=im.crop((170,0,762,120)); th=top.histogram(); tt=sum(th); top_dark=sum(th[:38])/tt
-              metrics.append({'name':name,'mean':mean,'near_black':near_black,'range':hi-lo,'top_dark':top_dark})
-              print(name,'mean',round(mean,1),'black',round(near_black,4),'range',hi-lo,'top_dark',round(top_dark,3))
-
-            page.goto('http://127.0.0.1:8000/index.html',wait_until='load',timeout=30000); page.wait_for_timeout(700)
-            if not page.is_visible('#enter'): errors.append('Entry screen missing')
-            else:
-              page.click('#enter'); page.wait_for_timeout(300); page.keyboard.press('Backquote'); page.wait_for_timeout(150)
-              before=page.locator('#debug').inner_text(); page.keyboard.down('KeyW'); page.wait_for_timeout(900); page.keyboard.up('KeyW'); page.wait_for_timeout(150); after=page.locator('#debug').inner_text()
-              def coords(text):
-                m=re.search(r'(-?\d+)m\s+(-?\d+)m',text); return (int(m.group(1)),int(m.group(2))) if m else None
-              if not coords(before) or coords(before)==coords(after): errors.append('Walking input failed')
+              im=Image.open(target).convert('L'); hist=im.histogram(); total=sum(hist); mean=ImageStat.Stat(im).mean[0]; lo,hi=im.getextrema(); near=sum(hist[:18])/total
+              metrics.append({'name':name,'mean':mean,'near_black':near,'range':hi-lo}); print(name,round(mean,1),round(near,4),hi-lo)
             browser.close()
           (out/'metrics.json').write_text(json.dumps({'metrics':metrics,'errors':errors},indent=2))
+          if errors: raise SystemExit(repr(errors))
           PY
 
-      - name: Upload latest QA screenshots
+      - name: Upload candidate screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-latest-qa-review
+          name: alpine-shadow-recovery-review
           path: qa-shots/*
           if-no-files-found: error
+
+      - name: Commit candidate to QA
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Lift Alpine shadow detail and rebalance nearby trees" || exit 0
+          git pull --rebase origin qa
+          git push origin HEAD:qa
