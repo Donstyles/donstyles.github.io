@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build readable alpine mood candidate
+      - name: Build glacial alpine art candidate
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -34,11 +34,11 @@ jobs:
           s=p.read_text()
           if 'return (h>>>8)/16777216' not in s: raise SystemExit('Deterministic hash missing')
 
-          js="""function terrainHeight(x,z){ const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const cross=Math.abs(x-center); let t=clamp((cross-700)/2800,0,1); t=t*t*(3-2*t); const macro=noise2(x*.00016+11,z*.00016-7); const r0=1-Math.abs(noise2(x*.00042-13,z*.00042+9)*2-1); const r1=1-Math.abs(noise2(x*.00092+17,z*.00092-23)*2-1); const r2=1-Math.abs(noise2(x*.00165+29,z*.00165+5)*2-1); const shoulder=noise2(x*.0017+3,z*.0017-19); const detail=noise2(x*.0048-31,z*.0048+5); const valley=620+(macro-.5)*100+(shoulder-.5)*28+(detail-.5)*10; const mountain=t*(760+520*Math.pow(r0,2.1)+240*Math.pow(r1,3.0)+120*Math.pow(r2,4.0)+(macro-.5)*140); const crags=t*55*Math.pow(r2,3.0); return valley+mountain+crags; }"""
+          js="""function terrainHeight(x,z){ const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const cross=Math.abs(x-center); let t=clamp((cross-850)/2750,0,1); t=t*t*(3-2*t); const floorT=clamp(cross/1150,0,1); const macro=noise2(x*.00016+11,z*.00016-7); const r0=1-Math.abs(noise2(x*.00042-13,z*.00042+9)*2-1); const r1=1-Math.abs(noise2(x*.00092+17,z*.00092-23)*2-1); const r2=1-Math.abs(noise2(x*.00165+29,z*.00165+5)*2-1); const r3=1-Math.abs(noise2(x*.00310-37,z*.00310+41)*2-1); const shoulder=noise2(x*.0017+3,z*.0017-19); const detail=noise2(x*.0056-31,z*.0056+5); const valley=605+70*Math.pow(floorT,1.8)+(macro-.5)*92+(shoulder-.5)*32+(detail-.5)*11+14*Math.sin(z*.00058); const mountain=t*(810+525*Math.pow(r0,2.0)+285*Math.pow(r1,3.0)+165*Math.pow(r2,4.0)+(macro-.5)*125); const crags=t*(92*Math.pow(r2,3.0)+68*Math.pow(r3,5.0)); return valley+mountain+crags; }"""
           s,n=re.subn(r'function terrainHeight\(x,z\)\{[^\n]*\}',js,s,count=1)
           if n!=1: raise SystemExit('JS terrain replacement failed')
 
-          glsl="""float terrain(vec2 p){ float center=550.0*sin(p.y*.00028)+220.0*sin(p.y*.00071+1.3); float cross=abs(p.x-center); float t=clamp((cross-700.0)/2800.0,0.0,1.0); t=t*t*(3.0-2.0*t); float macro=noise21(p*.00016+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00042+vec2(-13,9))*2.0-1.0); float r1=1.0-abs(noise21(p*.00092+vec2(17,-23))*2.0-1.0); float r2=1.0-abs(noise21(p*.00165+vec2(29,5))*2.0-1.0); float shoulder=noise21(p*.0017+vec2(3,-19)); float detail=noise21(p*.0048+vec2(-31,5)); float valley=620.0+(macro-.5)*100.0+(shoulder-.5)*28.0+(detail-.5)*10.0; float mountain=t*(760.0+520.0*pow(r0,2.1)+240.0*pow(r1,3.0)+120.0*pow(r2,4.0)+(macro-.5)*140.0); float crags=t*55.0*pow(r2,3.0); return valley+mountain+crags; }"""
+          glsl="""float terrain(vec2 p){ float center=550.0*sin(p.y*.00028)+220.0*sin(p.y*.00071+1.3); float cross=abs(p.x-center); float t=clamp((cross-850.0)/2750.0,0.0,1.0); t=t*t*(3.0-2.0*t); float floorT=clamp(cross/1150.0,0.0,1.0); float macro=noise21(p*.00016+vec2(11,-7)); float r0=1.0-abs(noise21(p*.00042+vec2(-13,9))*2.0-1.0); float r1=1.0-abs(noise21(p*.00092+vec2(17,-23))*2.0-1.0); float r2=1.0-abs(noise21(p*.00165+vec2(29,5))*2.0-1.0); float r3=1.0-abs(noise21(p*.00310+vec2(-37,41))*2.0-1.0); float shoulder=noise21(p*.0017+vec2(3,-19)); float detail=noise21(p*.0056+vec2(-31,5)); float valley=605.0+70.0*pow(floorT,1.8)+(macro-.5)*92.0+(shoulder-.5)*32.0+(detail-.5)*11.0+14.0*sin(p.y*.00058); float mountain=t*(810.0+525.0*pow(r0,2.0)+285.0*pow(r1,3.0)+165.0*pow(r2,4.0)+(macro-.5)*125.0); float crags=t*(92.0*pow(r2,3.0)+68.0*pow(r3,5.0)); return valley+mountain+crags; }"""
           s,n=re.subn(r'float terrain\(vec2 p\)\{[^\n]*\}',glsl,s,count=1)
           if n!=1: raise SystemExit('GLSL terrain replacement failed')
 
@@ -46,29 +46,31 @@ jobs:
 
           a=s.index('const skyP = program('); b=s.index('const terrainP = program(',a)
           sky=s[a:b]
-          skybody="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.385,.415,.405), zenith=vec3(.150,.170,.180); vec3 col=mix(horizon,zenith,smoothstep(.02,.97,y)); vec2 q=vec2(uv.x*5.8+uLook.x*.45,uv.y*13.5+uLook.y*1.15+uTime*.0023); float c=.50*noise21(q*1.9+vec2(7,-3))+.32*noise21(q*3.9+vec2(-9,4))+.18*noise21(q*7.5+vec2(13,8)); float texture=(c-.5)*.030; float mask=smoothstep(.08,.28,y)*(1.0-smoothstep(.96,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.075)/.15,2.0)); col=mix(col,vec3(.420,.442,.430),mist*.17); float band=floor((1.0-y)*36.0)/36.0; col*=.978+.030*band; o=vec4(col,1); }"""
+          skybody="""void main(){ vec2 uv=vUv; float y=clamp(uv.y,0.0,1.0); vec3 horizon=vec3(.398,.425,.415), zenith=vec3(.175,.192,.202); vec3 col=mix(horizon,zenith,smoothstep(.02,.98,y)); vec2 q=vec2(uv.x*7.0+uLook.x*.52,uv.y*15.0+uLook.y*1.25+uTime*.0021); float c=.52*noise21(q*1.8+vec2(7,-3))+.30*noise21(q*3.8+vec2(-9,4))+.18*noise21(q*8.2+vec2(13,8)); float texture=(c-.5)*.024; float mask=smoothstep(.08,.30,y)*(1.0-smoothstep(.97,1.0,y)); col+=vec3(texture*mask); float mist=exp(-pow((y-.075)/.15,2.0)); col=mix(col,vec3(.435,.452,.438),mist*.18); float band=floor((1.0-y)*38.0)/38.0; col*=.980+.028*band; o=vec4(col,1); }"""
           sky,n=re.subn(r'void main\(\)\{ vec2 uv=vUv;.*?o=vec4\(col,1\); \}',skybody,sky,count=1)
           if n!=1: raise SystemExit('Sky replacement failed')
           s=s[:a]+sky+s[b:]
 
-          terrainbody="""void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.48,.76,.30)); float nd=.68+.32*max(dot(n,sun),0.0); float slope=1.0-n.y; float alt=smoothstep(1050.0,2050.0,vH); float rock=smoothstep(.18,.62,slope); float snow=smoothstep(1650.0,2250.0,vH)*mix(.18,1.0,smoothstep(.25,.78,n.y)); float meadow=noise21(vWorld.xz*.0060); vec3 moss=mix(vec3(.125,.185,.125),vec3(.205,.245,.165),meadow); vec3 stone=vec3(.355,.365,.345), cold=vec3(.745,.765,.745); vec3 col=mix(moss,stone,max(rock*.82,alt*.48)); col=mix(col,cold,snow*.78); float micro=noise21(vWorld.xz*.035); float strata=noise21(vec2(vWorld.x*.010,vWorld.z*.0020)); col*=.96+.13*floor(micro*6.0)/5.0; col*=.96+.09*strata*rock; col*=nd; float fog=1.0-exp(-pow(vDist/2250.0,1.72)); float lowFog=(noise21(vWorld.xz*.0014+uTime*.0015)-.5)*.085; fog=clamp(fog+lowFog*smoothstep(280.0,1350.0,vDist),0.0,.965); vec3 fogCol=vec3(.350,.382,.368); col=mix(col,fogCol,fog); o=vec4(col,1); }"""
+          terrainbody="""void main(){ if(dot(vWorld-uCam,uForward)<0.5) discard; vec3 n=normalize(vNormal); vec3 sun=normalize(vec3(-.48,.76,.30)); float nd=.66+.34*max(dot(n,sun),0.0); float slope=1.0-n.y; float alt=smoothstep(1120.0,2080.0,vH); float rock=smoothstep(.16,.58,slope); float snow=smoothstep(1760.0,2300.0,vH)*mix(.16,1.0,smoothstep(.22,.76,n.y)); float meadowA=noise21(vWorld.xz*.0045); float meadowB=noise21(vWorld.xz*.013+vec2(17,-11)); float wet=smoothstep(.68,.88,noise21(vWorld.xz*.0024+vec2(-5,21))); vec3 grass=mix(vec3(.135,.205,.128),vec3(.230,.285,.165),meadowA*.70+meadowB*.30); grass=mix(grass,vec3(.095,.145,.112),wet*.42); float face=noise21(vWorld.xz*.009+vec2(3,19)); vec3 stone=mix(vec3(.315,.325,.310),vec3(.405,.410,.380),face); vec3 cold=vec3(.755,.770,.748); vec3 col=mix(grass,stone,max(rock*.90,alt*.50)); col=mix(col,cold,snow*.82); float micro=noise21(vWorld.xz*.042); float strata=noise21(vec2(vWorld.x*.013,vWorld.z*.0022)); col*=.955+.145*floor(micro*7.0)/6.0; col*=.94+.13*strata*rock; col*=nd; float fog=1.0-exp(-pow(vDist/2300.0,1.74)); float lowFog=(noise21(vWorld.xz*.00125+uTime*.0014)-.5)*.085; fog=clamp(fog+lowFog*smoothstep(300.0,1450.0,vDist),0.0,.965); vec3 fogCol=vec3(.360,.390,.375); col=mix(col,fogCol,fog); o=vec4(col,1); }"""
           s,n=re.subn(r'void main\(\)\{ if\(dot\(vWorld-uCam,uForward\)<0\.5\) discard; vec3 n=normalize\(vNormal\);.*?o=vec4\(col,1\); \}',terrainbody,s,count=1)
           if n!=1: raise SystemExit('Terrain material replacement failed')
 
-          s=re.sub(r'const cell=\d+, r=\d+', 'const cell=33, r=1400', s, count=1)
-          s=s.replace('if(dd>r||dd<18)continue;','if(dd>r||dd<42)continue;',1)
-          s=s.replace('clamp(1-(h-1650)/360,0,1)','clamp(1-(h-1720)/300,0,1)',1)
-          s=re.sub(r'forest>\.\d+ && localSlope<\d+', 'forest>.46 && localSlope<18', s, count=1)
-          s=re.sub(r'const s=\([^;]+?\)\*\(\.84\+\.16\*alpine\);', 'const s=(4.2+hash2(gx+7,gz+11)*3.8)*(.84+.16*alpine);', s, count=1)
+          treefn="""function rebuildTrees(px,pz){ const cell=31, r=1450, arr=[]; const cx0=Math.floor(px/cell), cz0=Math.floor(pz/cell), cr=Math.ceil(r/cell); outer: for(let dz=-cr;dz<=cr;dz++) for(let dx=-cr;dx<=cr;dx++){ if(arr.length>=7000*4)break outer; const gx=cx0+dx,gz=cz0+dz; const jx=hash2(gx,gz), jz=hash2(gx+91,gz-37); const x=(gx+jx)*cell,z=(gz+jz)*cell; const dd=Math.hypot(x-px,z-pz); if(dd>r||dd<45)continue; const h=terrainHeight(x,z); const localSlope=Math.abs(terrainHeight(x+5,z)-terrainHeight(x-5,z))+Math.abs(terrainHeight(x,z+5)-terrainHeight(x,z-5)); const alpine=clamp(1-(h-1740)/310,0,1); const center=550*Math.sin(z*.00028)+220*Math.sin(z*.00071+1.3); const cross=Math.abs(x-center); const cluster=noise2(gx*.11+5,gz*.11-9); const forest=hash2(gx*3,gz*3); const open=clamp((260-cross)/260,0,1); const threshold=.34+(1-cluster)*.28+open*.22; if(forest>threshold && localSlope<19 && alpine>0){ const size=(4.3+hash2(gx+7,gz+11)*3.9)*(.84+.16*alpine); arr.push(x,h-1,z,size); } } treeCount=arr.length/4; gl.bindBuffer(gl.ARRAY_BUFFER,treeBuf); gl.bufferSubData(gl.ARRAY_BUFFER,0,new Float32Array(arr)); treeAnchorX=px; treeAnchorZ=pz; }"""
+          s,n=re.subn(r'function rebuildTrees\(px,pz\)\{[^\n]*\}',treefn,s,count=1)
+          if n!=1: raise SystemExit('Tree clustering replacement failed')
 
-          s,n=re.subn(r"vec3 col=t\.rgb\*\([^;]+\); float fog=1\.0-exp\(-pow\(vDist/[^;]+; col=mix\(col,vec3\([^;]+;", "vec3 col=t.rgb*(.96+.14*vShade); float fog=1.0-exp(-pow(vDist/1300.0,1.55)); col=mix(col,vec3(.350,.382,.368),clamp(fog,0.0,.965));", s, count=1)
-          if n!=1: raise SystemExit('Tree material replacement failed')
+          treefrag="""void main(){ vec4 t=texture(uTree,vUv); if(t.a<.42)discard; vec3 col=t.rgb*(1.00+.12*vShade); float fog=1.0-exp(-pow(vDist/1380.0,1.55)); col=mix(col,vec3(.360,.390,.375),clamp(fog,0.0,.965)); o=vec4(col,1); }"""
+          tree_start=s.index('const treeP = program('); post_start=s.index('const postP = program(',tree_start)
+          tree=s[tree_start:post_start]
+          tree,n=re.subn(r'void main\(\)\{ vec4 t=texture\(uTree,vUv\);.*?o=vec4\(col,1\); \}',treefrag,tree,count=1)
+          if n!=1: raise SystemExit('Tree shader replacement failed')
+          s=s[:tree_start]+tree+s[post_start:]
 
-          s=re.sub(r"c=mix\(vec3\(dot\(c,vec3\(\.299,\.587,\.114\)\)\),c,\.\d+\); c\*=\d+\.\d+;", "c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.82); c*=1.17;", s, count=1)
-          s=re.sub(r"smoothstep\(\.\d+,\.\d+,edge\)\*\.\d+", "smoothstep(.43,.91,edge)*.105", s, count=1)
-          s=re.sub(r'opacity:\.\d+;', 'opacity:.17;', s, count=1)
+          s=re.sub(r"c=mix\(vec3\(dot\(c,vec3\(\.299,\.587,\.114\)\)\),c,\.\d+\); c\*=\d+\.\d+;", "c=mix(vec3(dot(c,vec3(.299,.587,.114))),c,.84); c*=1.14;", s, count=1)
+          s=re.sub(r"smoothstep\(\.\d+,\.\d+,edge\)\*\.\d+", "smoothstep(.44,.92,edge)*.095", s, count=1)
+          s=re.sub(r'opacity:\.\d+;', 'opacity:.14;', s, count=1)
 
-          required=['const center=550*Math.sin','float center=550.0*sin','let pos={x:210,z:0}, yaw=0','float meadow=noise21','const cell=33, r=1400','c*=1.17','opacity:.17']
+          required=['const r3=1-Math.abs','float r3=1.0-abs','70*Math.pow(floorT,1.8)','float meadowA=noise21','const cluster=noise2','const threshold=.34','c*=1.14','opacity:.14']
           missing=[q for q in required if q not in s]
           if missing: raise SystemExit('Candidate patch incomplete: '+repr(missing))
           p.write_text(s)
@@ -84,7 +86,7 @@ jobs:
           python -m http.server 8000 >/tmp/alpine-server.log 2>&1 &
           sleep 2
 
-      - name: Capture iPhone mood views
+      - name: Capture iPhone glacial valley views
         run: |
           python - <<'PY'
           from playwright.sync_api import sync_playwright
@@ -99,7 +101,7 @@ jobs:
             ('look_up',210,0,0.0,.38),
             ('look_down',210,0,0.0,-.38),
             ('four_km',420,4000,0.12,-.035),
-            ('side_walk',1150,1800,5.8,-.04),
+            ('forest_side',1050,1750,5.75,-.04),
           ]
           out=Path('qa-shots'); out.mkdir(exist_ok=True)
           metrics=[]
@@ -122,7 +124,7 @@ jobs:
       - name: Upload screenshot evidence
         uses: actions/upload-artifact@v4
         with:
-          name: alpine-visual-qa-readable-mood
+          name: alpine-visual-qa-glacial-art-pass
           path: |
             qa-shots/*.png
             qa-metrics.json
@@ -133,7 +135,7 @@ jobs:
           python - <<'PY'
           import json
           m=json.load(open('qa-metrics.json'))
-          bad=[x for x in m if x['mean']<48 or x['black']>.06 or x['range']<62]
+          bad=[x for x in m if x['mean']<48 or x['black']>.05 or x['range']<62]
           if bad: raise SystemExit('Readability guardrail failed: '+repr(bad))
           PY
 
@@ -145,7 +147,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No QA code changes"
           else
-            git commit -m "QA: readable alpine mood and valley materials"
+            git commit -m "QA: glacial valley crags and clustered forest"
             git pull --rebase origin qa
             git push origin HEAD:qa
           fi
